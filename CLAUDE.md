@@ -6,15 +6,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Development
 ```bash
+# Install all dependencies (frontend + backend)
+npm run install:all
+
 # Start development servers with hot reload (frontend + backend)
-pnpm run dev
+npm run dev
 
 # Individual dev servers
 npm run frontend:dev    # Frontend only (port 3000)
 npm run backend:dev     # Backend only (port auto-assigned)
 
 # Build production version
-./build-npm-package.sh
+npm run build
 ```
 
 ### Testing & Validation
@@ -28,44 +31,37 @@ cd frontend && npm run format:check  # Check formatting
 cd frontend && npx tsc --noEmit     # TypeScript type checking
 
 # Backend specific  
-cargo test --workspace               # Run all Rust tests
-cargo test -p <crate_name>          # Test specific crate
-cargo test test_name                # Run specific test
-cargo fmt --all -- --check          # Check Rust formatting
-cargo clippy --all --all-targets --all-features -- -D warnings  # Linting
-
-# Type generation (after modifying Rust types)
-npm run generate-types               # Regenerate TypeScript types from Rust
-npm run generate-types:check        # Verify types are up to date
+cd backend && npm run lint           # Lint TypeScript code
+cd backend && npm run format:check   # Check formatting
+cd backend && npm run typecheck      # TypeScript type checking
+cd backend && npm run check          # Run all checks
 ```
 
 ### Database Operations
 ```bash
-# SQLx migrations
-sqlx migrate run                     # Apply migrations
-sqlx database create                 # Create database
-
-# Database is auto-copied from dev_assets_seed/ on dev server start
+# Database migrations are automatically applied on backend startup
+# SQLite database is created in data/ directory
+# Database file: data/vibe-kanban.db
 ```
 
 ## Architecture Overview
 
 ### Tech Stack
-- **Backend**: Rust with Axum web framework, Tokio async runtime, SQLx for database
+- **Backend**: Node.js with Express, TypeScript, Knex.js for database
 - **Frontend**: React 18 + TypeScript + Vite, Tailwind CSS, shadcn/ui components  
-- **Database**: SQLite with SQLx migrations
-- **Type Sharing**: ts-rs generates TypeScript types from Rust structs
+- **Database**: SQLite with Knex migrations
 - **MCP Server**: Built-in Model Context Protocol server for AI agent integration
 
 ### Project Structure
 ```
-crates/
-├── server/         # Axum HTTP server, API routes, MCP server
-├── db/            # Database models, migrations, SQLx queries
-├── executors/     # AI coding agent integrations (Claude, Gemini, etc.)
-├── services/      # Business logic, GitHub, auth, git operations
-├── local-deployment/  # Local deployment logic
-└── utils/         # Shared utilities
+backend/           # TypeScript/Express backend
+├── src/
+│   ├── routes/      # API routes (tasks, projects, auth, etc.)
+│   ├── services/    # Business logic (deployment, database, worktree)
+│   ├── executors/   # AI agent integrations (Claude, OpenAI, Gemini)
+│   ├── middleware/  # Express middleware
+│   ├── mcp/         # MCP server implementation
+│   └── utils/       # Utilities (logger, browser, etc.)
 
 frontend/          # React application
 ├── src/
@@ -74,7 +70,7 @@ frontend/          # React application
 │   ├── hooks/      # Custom React hooks (useEventSourceManager, etc.)
 │   └── lib/        # API client, utilities
 
-shared/types.ts    # Auto-generated TypeScript types from Rust
+shared/types.ts    # Shared TypeScript types
 ```
 
 ### Key Architectural Patterns
@@ -100,20 +96,20 @@ shared/types.ts    # Auto-generated TypeScript types from Rust
 - REST endpoints under `/api/*`
 - Frontend dev server proxies to backend (configured in vite.config.ts)
 - Authentication via GitHub OAuth (device flow)
-- All database queries in `crates/db/src/models/`
+- All database queries using Knex.js query builder
 
 ### Development Workflow
 
 1. **Backend changes first**: When modifying both frontend and backend, start with backend
-2. **Type generation**: Run `npm run generate-types` after modifying Rust types
-3. **Database migrations**: Create in `crates/db/migrations/`, apply with `sqlx migrate run`
-4. **Component patterns**: Follow existing patterns in `frontend/src/components/`
+2. **Database migrations**: Handled automatically by Knex.js on startup
+3. **Component patterns**: Follow existing patterns in `frontend/src/components/`
+4. **Type safety**: Ensure TypeScript types are consistent between backend and frontend
 
 ### Testing Strategy
 
-- **Unit tests**: Colocated with code in each crate
-- **Integration tests**: In `tests/` directory of relevant crates  
-- **Frontend tests**: TypeScript compilation and linting only
+- **Backend tests**: TypeScript compilation and linting
+- **Frontend tests**: TypeScript compilation and linting
+- **Type checking**: Run `npm run check` to validate both frontend and backend
 - **CI/CD**: GitHub Actions workflow in `.github/workflows/test.yml`
 
 ### Environment Variables
