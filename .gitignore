@@ -81,3 +81,5 @@ dev_assets
 .ssh
 
 vibe-kanban-cloud/
+
+backend_test/

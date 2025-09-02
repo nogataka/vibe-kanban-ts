@@ -2,128 +2,123 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Essential Commands
+## Project Purpose
+Rust版からTypeScript/Node.js版へのバックエンド完全移植
+
+## Commands
 
 ### Development
 ```bash
-# Start development servers with hot reload (frontend + backend)
-pnpm run dev
+# Install all dependencies (root, frontend, backend)
+npm run install:all
 
-# Individual dev servers
-npm run frontend:dev    # Frontend only (port 3000)
-npm run backend:dev     # Backend only (port auto-assigned)
+# Start development servers (frontend:3000, backend:3001)
+npm run dev
 
-# Build production version
-./build-npm-package.sh
+# Backend development only
+npm run backend:dev
+
+# Frontend development only  
+npm run frontend:dev
 ```
 
-### Testing & Validation
+### Build & Check
 ```bash
-# Run all checks (frontend + backend)
-npm run check
+# Type checking
+npm run backend:check  # Backend TypeScript check
+npm run frontend:check # Frontend TypeScript check
+npm run check         # Both
 
-# Frontend specific
-cd frontend && npm run lint          # Lint TypeScript/React code
-cd frontend && npm run format:check  # Check formatting
-cd frontend && npx tsc --noEmit     # TypeScript type checking
+# Build
+npm run backend:build  # Backend build (tsc)
+npm run build         # Full build (backend + frontend)
 
-# Backend specific  
-cargo test --workspace               # Run all Rust tests
-cargo test -p <crate_name>          # Test specific crate
-cargo test test_name                # Run specific test
-cargo fmt --all -- --check          # Check Rust formatting
-cargo clippy --all --all-targets --all-features -- -D warnings  # Linting
-
-# Type generation (after modifying Rust types)
-npm run generate-types               # Regenerate TypeScript types from Rust
-npm run generate-types:check        # Verify types are up to date
+# Linting & Formatting (backend)
+cd backend
+npm run lint          # ESLint
+npm run format        # Prettier format
+npm run format:check  # Prettier check
+npm run typecheck     # TypeScript check
 ```
 
-### Database Operations
+### Database
 ```bash
-# SQLx migrations
-sqlx migrate run                     # Apply migrations
-sqlx database create                 # Create database
-
-# Database is auto-copied from dev_assets_seed/ on dev server start
+cd backend
+npm run db:migrate    # Run migrations
+npm run db:reset      # Reset database
 ```
 
-## Architecture Overview
+## Architecture
 
-### Tech Stack
-- **Backend**: Rust with Axum web framework, Tokio async runtime, SQLx for database
-- **Frontend**: React 18 + TypeScript + Vite, Tailwind CSS, shadcn/ui components  
-- **Database**: SQLite with SQLx migrations
-- **Type Sharing**: ts-rs generates TypeScript types from Rust structs
-- **MCP Server**: Built-in Model Context Protocol server for AI agent integration
-
-### Project Structure
+### Directory Structure
 ```
-crates/
-├── server/         # Axum HTTP server, API routes, MCP server
-├── db/            # Database models, migrations, SQLx queries
-├── executors/     # AI coding agent integrations (Claude, Gemini, etc.)
-├── services/      # Business logic, GitHub, auth, git operations
-├── local-deployment/  # Local deployment logic
-└── utils/         # Shared utilities
-
-frontend/          # React application
-├── src/
-│   ├── components/  # React components (TaskCard, ProjectCard, etc.)
-│   ├── pages/      # Route pages
-│   ├── hooks/      # Custom React hooks (useEventSourceManager, etc.)
-│   └── lib/        # API client, utilities
-
-shared/types.ts    # Auto-generated TypeScript types from Rust
+/vibe-kanban
+├── crates/           # Rust版 (参照元)
+│   ├── server/       # APIサーバー
+│   ├── db/          # データベース層
+│   ├── services/    # ビジネスロジック
+│   ├── executors/   # AI実行エンジン
+│   ├── deployment/  # デプロイメント管理
+│   ├── local-deployment/ # ローカル実行
+│   └── utils/       # 共通ユーティリティ
+├── backend/         # TypeScript版 (移植先)
+│   ├── server/      # APIサーバー
+│   ├── db/          # データベース層
+│   ├── services/    # ビジネスロジック
+│   ├── executors/   # AI実行エンジン
+│   ├── deployment/  # デプロイメント管理
+│   ├── local-deployment/ # ローカル実行
+│   └── utils/       # 共通ユーティリティ
+└── frontend/        # React UI (修正禁止)
 ```
 
-### Key Architectural Patterns
+### Key Services
+- **DatabaseService**: SQLite接続管理とCRUD操作
+- **DeploymentService**: タスク実行とプロセス管理
+- **WorktreeManager**: Git worktree管理
+- **EventService**: WebSocketイベント配信
+- **MCPServer**: Model Context Protocol実装
 
-1. **Event Streaming**: Server-Sent Events (SSE) for real-time updates
-   - Process logs stream to frontend via `/api/events/processes/:id/logs`
-   - Task diffs stream via `/api/events/task-attempts/:id/diff`
+### API Endpoints Structure
+- `/api/projects` - プロジェクト管理
+- `/api/tasks` - タスク管理
+- `/api/task-attempts` - タスク実行試行
+- `/api/execution-processes` - 実行プロセス
+- `/api/templates` - タスクテンプレート
+- SSE endpoints for log streaming
 
-2. **Git Worktree Management**: Each task execution gets isolated git worktree
-   - Managed by `WorktreeManager` service
-   - Automatic cleanup of orphaned worktrees
+## Migration Guidelines
 
-3. **Executor Pattern**: Pluggable AI agent executors
-   - Each executor (Claude, Gemini, etc.) implements common interface
-   - Actions: `coding_agent_initial`, `coding_agent_follow_up`, `script`
+### ファイル対応表
+詳細な1対1対応表: `/RUST_TO_REACT_FILES_TABLE.md`
 
-4. **MCP Integration**: Vibe Kanban acts as MCP server
-   - Tools: `list_projects`, `list_tasks`, `create_task`, `update_task`, etc.
-   - AI agents can manage tasks via MCP protocol
+### 移植ルール
+1. Rust版の機能を完全に再現（言語制約がある場合を除く）
+2. ディレクトリ構造は可能な限りRust版と同一に保つ
+3. モデル名はTypeScript慣習に従う（camelCase）
 
-### API Patterns
+### ポート設定
+開発用ポート: `/.dev-ports.json`
+- Frontend: 3000
+- Backend: 3001
 
-- REST endpoints under `/api/*`
-- Frontend dev server proxies to backend (configured in vite.config.ts)
-- Authentication via GitHub OAuth (device flow)
-- All database queries in `crates/db/src/models/`
+## Important Constraints
 
-### Development Workflow
+### 絶対に守ること
+- **フロントエンド修正禁止**: `/frontend` ディレクトリは一切変更しない
+- **node_modules参照禁止**: 巨大なため参照しない
+- **対比表確認必須**: 修正時は必ずRust版と対比表を確認
+- **簡易版作成禁止**: simple版などの限定機能版を勝手に作らない
+- **指示待ち厳守**: 明示的な指示なしに新機能追加や大幅な変更をしない
 
-1. **Backend changes first**: When modifying both frontend and backend, start with backend
-2. **Type generation**: Run `npm run generate-types` after modifying Rust types
-3. **Database migrations**: Create in `crates/db/migrations/`, apply with `sqlx migrate run`
-4. **Component patterns**: Follow existing patterns in `frontend/src/components/`
+### Database Schema
+SQLiteデータベース（`backend/data/vibe-kanban.db`）
+- マイグレーションファイルは参照用（`crates/db/migrations/`）
+- 実際のスキーマは手動管理
 
-### Testing Strategy
-
-- **Unit tests**: Colocated with code in each crate
-- **Integration tests**: In `tests/` directory of relevant crates  
-- **Frontend tests**: TypeScript compilation and linting only
-- **CI/CD**: GitHub Actions workflow in `.github/workflows/test.yml`
-
-### Environment Variables
-
-Build-time (set when building):
-- `GITHUB_CLIENT_ID`: GitHub OAuth app ID (default: Bloop AI's app)
-- `POSTHOG_API_KEY`: Analytics key (optional)
-
-Runtime:
-- `BACKEND_PORT`: Backend server port (default: auto-assign)
-- `FRONTEND_PORT`: Frontend dev port (default: 3000)
-- `HOST`: Backend host (default: 127.0.0.1)
-- `DISABLE_WORKTREE_ORPHAN_CLEANUP`: Debug flag for worktrees
+## Current Status
+2025年9月1日時点:
+- 基本API機能実装済み（プロジェクト、タスク、テンプレート）
+- SSEログストリーミング実装済み
+- フロントエンド連携動作確認済み
+- 未実装: 実AIエンジン統合、GitHub連携、ファイル監視
