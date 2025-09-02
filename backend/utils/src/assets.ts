@@ -169,7 +169,7 @@ export async function writeAssetFile(filename: string, content: string): Promise
 
 /**
  * Asset management for embedded content
- * React equivalent of Rust's RustEmbed functionality
+ * TypeScript/Node.js equivalent of Rust's RustEmbed functionality
  */
 export class AssetManager {
   private static soundsPath: string;

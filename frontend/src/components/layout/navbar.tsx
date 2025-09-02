@@ -33,12 +33,12 @@ const EXTERNAL_LINKS = [
   {
     label: 'Docs',
     icon: BookOpen,
-    href: 'https://vibekanban.com/',
+    href: 'https://github.com/nogataka/vibe-kanban-ts/',
   },
   {
     label: 'Support',
     icon: MessageCircleQuestion,
-    href: 'https://github.com/BloopAI/vibe-kanban/issues',
+    href: 'https://github.com/nogataka/vibe-kanban-ts/issues',
   },
 ];
 

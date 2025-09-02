@@ -1,21 +1,3 @@
-<p align="center">
-  <a href="https://vibekanban.com">
-    <picture>
-      <source srcset="frontend/public/vibe-kanban-logo-dark.svg" media="(prefers-color-scheme: dark)">
-      <source srcset="frontend/public/vibe-kanban-logo.svg" media="(prefers-color-scheme: light)">
-      <img src="frontend/public/vibe-kanban-logo.svg" alt="Vibe Kanban Logo">
-    </picture>
-  </a>
-</p>
-
-<p align="center">Get 10X more out of Claude Code, Gemini CLI, Codex, Amp and other coding agents...</p>
-<p align="center">
-  <a href="https://www.npmjs.com/package/vibe-kanban"><img alt="npm" src="https://img.shields.io/npm/v/vibe-kanban?style=flat-square" /></a>
-  <a href="https://github.com/BloopAI/vibe-kanban/blob/main/.github/workflows/publish.yml"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/BloopAI/vibe-kanban/.github%2Fworkflows%2Fpublish.yml" /></a>
-</p>
-
-![](frontend/public/vibe-kanban-screenshot-overview.png)
-
 ## Overview
 
 AI coding agents are increasingly writing the world's code and human engineers now spend the majority of their time planning, reviewing, and orchestrating tasks. Vibe Kanban streamlines this process, enabling you to:
@@ -28,9 +10,9 @@ AI coding agents are increasingly writing the world's code and human engineers n
 
 You can watch a video overview [here](https://youtu.be/TFT3KnZOOAk).
 
-## React/Node.js Version
+## TypeScript/Node.js Version
 
-This is the React/Node.js implementation of Vibe Kanban, providing full compatibility with the original Rust version while leveraging the JavaScript ecosystem.
+This is the TypeScript/Node.js implementation of Vibe Kanban, providing full compatibility with the original Rust version while leveraging the JavaScript ecosystem.
 
 ## Installation
 
@@ -156,7 +138,7 @@ Development ports are configured in `.dev-ports.json`:
 
 ### API Compatibility
 
-This React/Node.js version maintains 95%+ API compatibility with the original Rust implementation. See `API_COMPARISON_FINAL.md` for detailed compatibility information.
+This TypeScript/Node.js version maintains 95%+ API compatibility with the original Rust implementation. See `API_COMPARISON_FINAL.md` for detailed compatibility information.
 
 ### Custom GitHub OAuth App (Optional)
 
@@ -172,11 +154,11 @@ By default, Vibe Kanban uses Bloop AI's GitHub OAuth app for authentication. To 
 
 ## Migration from Rust Version
 
-This React/Node.js implementation is designed to be a drop-in replacement for the Rust version. All data formats, API endpoints, and frontend interactions remain compatible. Simply stop the Rust server and start the Node.js server to switch implementations.
+This TypeScript/Node.js implementation is designed to be a drop-in replacement for the Rust version. All data formats, API endpoints, and frontend interactions remain compatible. Simply stop the Rust server and start the Node.js server to switch implementations.
 
 ## Performance Considerations
 
-While the React/Node.js version may have slightly different performance characteristics compared to the Rust version, it offers:
+While the TypeScript/Node.js version may have slightly different performance characteristics compared to the Rust version, it offers:
 - Easier deployment and maintenance
 - Broader ecosystem compatibility
 - Simplified development workflow
@@ -185,3 +167,7 @@ While the React/Node.js version may have slightly different performance characte
 ## License
 
 See the LICENSE file for details.
+
+This project is a React port of [BloopAI/vibe-kanban](https://github.com/BloopAI/vibe-kanban),
+originally licensed under Apache License 2.0.  
+Additional modifications © 2025 nogataka.
