@@ -1,3 +1,5 @@
+**Note: This project is a TypeScript/Node.js port of the original Rust backend implementation.**
+
 ## Overview
 
 AI coding agents are increasingly writing the world's code and human engineers now spend the majority of their time planning, reviewing, and orchestrating tasks. Vibe Kanban streamlines this process, enabling you to:
