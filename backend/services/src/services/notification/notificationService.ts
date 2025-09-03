@@ -3,24 +3,12 @@ import * as fs from 'fs/promises';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { logger } from '../../../../utils/src/logger';
+import { SoundFile, soundFileToPath, NotificationConfig as ConfigNotificationConfig } from '../config/configService';
 
 const execAsync = promisify(exec);
 
-export interface NotificationConfig {
-  sound_enabled: boolean;
-  push_enabled: boolean;
-  sound_file?: SoundFile;
-}
-
-export enum SoundFileType {
-  SUCCESS = 'success',
-  ERROR = 'error',
-  CANCELLED = 'cancelled'
-}
-
-export interface SoundFile {
-  type: SoundFileType;
-  path?: string;
+export interface NotificationConfig extends ConfigNotificationConfig {
+  // Inherits sound_enabled, push_enabled, sound_file from config
 }
 
 export class NotificationError extends Error {
@@ -72,9 +60,9 @@ export class NotificationService {
     // Create simple beep sounds for different events
     // In a real implementation, you might want to include actual sound files
     const sounds = [
-      { type: SoundFileType.SUCCESS, filename: 'success.wav' },
-      { type: SoundFileType.ERROR, filename: 'error.wav' },
-      { type: SoundFileType.CANCELLED, filename: 'cancelled.wav' }
+      { type: 'success', filename: 'success.wav' },
+      { type: 'error', filename: 'error.wav' },
+      { type: 'cancelled', filename: 'cancelled.wav' }
     ];
 
     for (const sound of sounds) {
@@ -101,22 +89,18 @@ export class NotificationService {
     const title = `Task Complete: ${ctx.task.title}`;
     
     let message: string;
-    let soundType: SoundFileType;
 
     switch (ctx.execution_process.status) {
       case 'completed':
         message = `✅ '${ctx.task.title}' completed successfully\nBranch: ${ctx.task_attempt.branch}\nExecutor: ${ctx.task_attempt.profile}`;
-        soundType = SoundFileType.SUCCESS;
         break;
       
       case 'failed':
         message = `❌ '${ctx.task.title}' execution failed\nBranch: ${ctx.task_attempt.branch}\nExecutor: ${ctx.task_attempt.profile}`;
-        soundType = SoundFileType.ERROR;
         break;
       
       case 'killed':
         message = `🛑 '${ctx.task.title}' execution cancelled by user\nBranch: ${ctx.task_attempt.branch}\nExecutor: ${ctx.task_attempt.profile}`;
-        soundType = SoundFileType.CANCELLED;
         break;
       
       default:
@@ -124,8 +108,8 @@ export class NotificationService {
         return;
     }
 
-    const soundFile: SoundFile = { type: soundType };
-    await this.notify({ ...config, sound_file: soundFile }, title, message);
+    // Use the sound file from config (already has the correct SoundFile enum)
+    await this.notify(config, title, message);
   }
 
   /**
@@ -134,7 +118,7 @@ export class NotificationService {
   async notify(config: NotificationConfig, title: string, message: string): Promise<void> {
     const promises: Promise<void>[] = [];
 
-    if (config.sound_enabled && config.sound_file) {
+    if (config.sound_enabled) {
       promises.push(this.playSoundNotification(config.sound_file));
     }
 
@@ -349,34 +333,24 @@ export class NotificationService {
    * Get sound file path for the given sound type
    */
   private async getSoundFilePath(soundFile: SoundFile): Promise<string | null> {
-    if (soundFile.path) {
-      return soundFile.path;
-    }
-
-    const filename = this.getSoundFilename(soundFile.type);
-    const soundPath = path.join(this.soundCacheDir, filename);
-
+    // Use the soundFileToPath helper from configService
+    const filename = soundFileToPath(soundFile);
+    
+    // Try to find the sound file in assets directory first
+    const assetsPath = path.join(process.cwd(), '..', 'assets', 'sounds', filename);
     try {
-      await fs.access(soundPath);
-      return soundPath;
+      await fs.access(assetsPath);
+      return assetsPath;
     } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Get filename for sound type
-   */
-  private getSoundFilename(soundType: SoundFileType): string {
-    switch (soundType) {
-      case SoundFileType.SUCCESS:
-        return 'success.wav';
-      case SoundFileType.ERROR:
-        return 'error.wav';
-      case SoundFileType.CANCELLED:
-        return 'cancelled.wav';
-      default:
-        return 'default.wav';
+      // Fall back to cache directory
+      const soundPath = path.join(this.soundCacheDir, filename);
+      try {
+        await fs.access(soundPath);
+        return soundPath;
+      } catch {
+        logger.warn(`Sound file not found: ${filename}`);
+        return null;
+      }
     }
   }
 

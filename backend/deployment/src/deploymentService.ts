@@ -23,6 +23,8 @@ import { ProcessManager } from '../../services/src/services/process/processManag
 import { MsgStore } from '../../utils/src/msgStore';
 import { ClaudeCode } from '../../executors/src/executors/claude';
 import { ExecutorActionExecutor, ExecutorActionFactory, type ExecutorAction } from '../../executors/src/executorAction';
+import { NotificationService } from '../../services/src/services/notification';
+import { ConfigService } from '../../services/src/services/config';
 
 
 const execAsync = promisify(exec);
@@ -33,6 +35,8 @@ export class DeploymentService {
   private db?: DatabaseService;
   private filesystemService: FilesystemService;
   private githubService?: GitHubIntegrationService;
+  private notificationService: NotificationService;
+  private configService: ConfigService;
   // Process management (matches Rust child_store and msg_stores)
   private processManagers = new Map<string, ProcessManager>();
   private msgStores = new Map<string, MsgStore>();
@@ -52,6 +56,8 @@ export class DeploymentService {
     this.projectRoot = projectRoot || process.cwd();
     this.deploymentDir = path.join(this.projectRoot, '.vibe-deployments');
     this.filesystemService = new FilesystemService();
+    this.notificationService = new NotificationService();
+    this.configService = new ConfigService();
   }
 
   /**
@@ -92,7 +98,8 @@ export class DeploymentService {
         }
       }
 
-
+      // Initialize config service
+      await this.configService.loadConfig();
       
       logger.info('Deployment service initialized');
     } catch (error) {
@@ -297,45 +304,85 @@ export class DeploymentService {
   /**
    * Get project branches from git repository
    */
-  async getProjectBranches(gitRepoPath: string): Promise<Array<{name: string, type: string}>> {
+  async getProjectBranches(gitRepoPath: string): Promise<Array<{name: string, is_current: boolean, is_remote: boolean, last_commit_date?: string}>> {
     try {
+      // Get current branch first
+      let currentBranch = '';
+      try {
+        const { stdout: currentStdout } = await execAsync('git branch --show-current', { cwd: gitRepoPath });
+        currentBranch = currentStdout.trim();
+      } catch {
+        // Ignore error if can't get current branch
+      }
+      
       // Get all branches (local and remote)
       const { stdout } = await execAsync('git branch -a', { cwd: gitRepoPath });
       
-      const branches = stdout
-        .split('\n')
-        .filter(line => line.trim())
-        .map(line => {
-          const cleanLine = line.replace(/^\*?\s*/, '').trim();
-          
-          if (cleanLine.startsWith('remotes/')) {
-            // Remote branch
-            const remoteBranch = cleanLine.replace('remotes/', '');
-            // Skip HEAD references
-            if (remoteBranch.includes(' -> ')) {
-              return null;
+      const branches = await Promise.all(
+        stdout
+          .split('\n')
+          .filter(line => line.trim())
+          .map(async (line) => {
+            const isCurrentMarker = line.startsWith('*');
+            const cleanLine = line.replace(/^\*?\s*/, '').trim();
+            
+            if (cleanLine.startsWith('remotes/')) {
+              // Remote branch
+              const remoteBranch = cleanLine.replace('remotes/', '');
+              // Skip HEAD references
+              if (remoteBranch.includes(' -> ')) {
+                return null;
+              }
+              
+              // Get last commit date
+              let lastCommitDate: string | undefined;
+              try {
+                const { stdout: dateStdout } = await execAsync(
+                  `git log -1 --format=%aI "${remoteBranch}"`,
+                  { cwd: gitRepoPath }
+                );
+                lastCommitDate = dateStdout.trim();
+              } catch {
+                // Ignore if can't get commit date
+              }
+              
+              return {
+                name: remoteBranch,
+                is_current: false,
+                is_remote: true,
+                last_commit_date: lastCommitDate
+              };
+            } else {
+              // Local branch
+              // Get last commit date
+              let lastCommitDate: string | undefined;
+              try {
+                const { stdout: dateStdout } = await execAsync(
+                  `git log -1 --format=%aI "${cleanLine}"`,
+                  { cwd: gitRepoPath }
+                );
+                lastCommitDate = dateStdout.trim();
+              } catch {
+                // Ignore if can't get commit date
+              }
+              
+              return {
+                name: cleanLine,
+                is_current: currentBranch ? cleanLine === currentBranch : isCurrentMarker,
+                is_remote: false,
+                last_commit_date: lastCommitDate
+              };
             }
-            return {
-              name: remoteBranch,
-              type: 'remote'
-            };
-          } else {
-            // Local branch
-            return {
-              name: cleanLine,
-              type: 'local'
-            };
-          }
-        })
-        .filter(branch => branch !== null) as Array<{name: string, type: string}>;
+          })
+      );
 
-      return branches;
+      return branches.filter(branch => branch !== null) as Array<{name: string, is_current: boolean, is_remote: boolean, last_commit_date?: string}>;
     } catch (error) {
       logger.error('Failed to get git branches:', error);
       // Return default branches if git command fails
       return [
-        { name: 'main', type: 'local' },
-        { name: 'master', type: 'local' }
+        { name: 'main', is_current: true, is_remote: false },
+        { name: 'master', is_current: false, is_remote: false }
       ];
     }
   }
@@ -743,9 +790,28 @@ export class DeploymentService {
           { cwd: project.git_repo_path }
         );
       } else {
-        // Create new branch
+        // Create new branch from base branch
+        const baseBranch = taskAttempt.base_branch || 'main';
+        
+        // Check if base branch is a remote branch or local branch
+        let baseRef = baseBranch;
+        try {
+          // Try to use the base branch as-is (could be another task branch)
+          await execAsync(`git rev-parse --verify "${baseBranch}"`, { cwd: project.git_repo_path });
+        } catch {
+          // If base branch doesn't exist locally, try origin/baseBranch
+          try {
+            await execAsync(`git rev-parse --verify "origin/${baseBranch}"`, { cwd: project.git_repo_path });
+            baseRef = `origin/${baseBranch}`;
+          } catch {
+            // If neither exists, default to main/master
+            logger.warn(`Base branch ${baseBranch} not found, falling back to main`);
+            baseRef = 'main';
+          }
+        }
+        
         await execAsync(
-          `git worktree add --checkout -b "${taskBranchName}" "${worktreePath}" "${taskAttempt.base_branch || 'main'}"`,
+          `git worktree add --checkout -b "${taskBranchName}" "${worktreePath}" "${baseRef}"`,
           { cwd: project.git_repo_path }
         );
       }
@@ -1827,6 +1893,43 @@ export class DeploymentService {
       if (!taskAttempt) {
         logger.error(`Task attempt ${taskAttemptId} not found for finalization`);
         return;
+      }
+
+      // Get task details
+      const task = await this.models!.task.findById(taskAttempt.task_id);
+      if (!task) {
+        logger.error(`Task ${taskAttempt.task_id} not found for finalization`);
+        return;
+      }
+
+      // Get execution process for status
+      const executionProcesses = await this.models!.executionProcess.findByTaskAttemptId(taskAttemptId);
+      const latestProcess = executionProcesses[executionProcesses.length - 1];
+      
+      if (latestProcess) {
+        // Get config for notifications
+        const config = await this.configService.getConfig();
+        
+        if (config.notifications) {
+          // Create execution context for notification
+          const executionContext = {
+            task: {
+              id: task.id,
+              title: task.title
+            },
+            task_attempt: {
+              id: taskAttempt.id,
+              branch: taskAttempt.branch || undefined,
+              profile: taskAttempt.profile
+            },
+            execution_process: {
+              status: latestProcess.status as 'completed' | 'failed' | 'killed' | 'running'
+            }
+          };
+
+          // Send notification (matches Rust NotificationService::notify_execution_halted)
+          await this.notificationService.notifyExecutionHalted(config.notifications, executionContext);
+        }
       }
 
       // Update task status to InReview (matches Rust finalize_task)

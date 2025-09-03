@@ -39,6 +39,22 @@ npm run lint          # ESLint
 npm run format        # Prettier format
 npm run format:check  # Prettier check
 npm run typecheck     # TypeScript check
+
+# Linting & Formatting (frontend)
+cd frontend
+npm run lint          # ESLint with max 100 warnings
+npm run lint:fix      # Auto-fix ESLint issues
+npm run format        # Prettier format
+npm run format:check  # Prettier check
+```
+
+### Cleanup
+```bash
+# Backend cleanup
+cd backend
+npm run clean         # Remove dist directory
+npm run clean:logs    # Remove log files
+npm run clean:all     # Clean everything
 ```
 
 ### Database
@@ -115,6 +131,30 @@ npm run db:reset      # Reset database
 SQLiteデータベース（`backend/data/vibe-kanban.db`）
 - マイグレーションファイルは参照用（`crates/db/migrations/`）
 - 実際のスキーマは手動管理
+
+## Testing
+現在テストは未実装。`npm test`は設定されていないため、実行するとエラーになる。
+
+## Environment Variables
+以下の環境変数が設定可能:
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `GITHUB_CLIENT_ID` | Build-time | `Ov23li9bxz3kKfPOIsGm` | GitHub OAuth app client ID |
+| `POSTHOG_API_KEY` | Build-time | Empty | PostHog analytics API key |
+| `POSTHOG_API_ENDPOINT` | Build-time | Empty | PostHog analytics endpoint |
+| `PORT` | Runtime | `3001` | Backend server port |
+| `BACKEND_PORT` | Runtime | `3001` | Alternative backend server port |
+| `FRONTEND_PORT` | Runtime | `3000` | Frontend development server port |
+| `HOST` | Runtime | `127.0.0.1` | Backend server host |
+| `DISABLE_WORKTREE_ORPHAN_CLEANUP` | Runtime | Not set | Disable git worktree cleanup |
+
+## NPX Package
+このプロジェクトは`npx vibe-kanban`として配布可能:
+```bash
+npm run build:npx    # NPXパッケージビルド
+npm run test:npm     # NPXパッケージテスト
+```
 
 ## Current Status
 2025年9月1日時点:

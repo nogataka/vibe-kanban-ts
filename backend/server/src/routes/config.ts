@@ -159,6 +159,28 @@ router.get('/system-info', async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/config - Get current configuration
+router.get('/config', async (req: Request, res: Response) => {
+  try {
+    const config = await configService.getConfig();
+    
+    res.json({
+      success: true,
+      data: config,
+      error_data: null,
+      message: null
+    });
+  } catch (error) {
+    logger.error('Failed to get config:', error);
+    res.status(500).json({
+      success: false,
+      data: null,
+      error_data: null,
+      message: 'Failed to get configuration'
+    });
+  }
+});
+
 // PUT /api/config - Update configuration (matches Rust's /config route)
 router.put('/config', async (req: Request, res: Response) => {
   try {

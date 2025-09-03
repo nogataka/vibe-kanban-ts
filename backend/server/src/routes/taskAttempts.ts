@@ -8,7 +8,16 @@ const router = Router();
 
 const CreateTaskAttemptSchema = z.object({
   task_id: z.string(),
-  profile: z.string(),
+  // Support both old format (profile) and new format (profile_variant_label)
+  profile: z.string().optional(),
+  profile_variant_label: z.object({
+    profile: z.string(),
+    variant: z.string().nullable().optional()
+  }).optional(),
+  // Support both executor_profile_id (Rust) and direct profile
+  executor_profile_id: z.object({
+    executor: z.string()
+  }).optional(),
   base_branch: z.string().default('main')
 });
 
@@ -113,11 +122,44 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
 
+    // Extract profile from various possible formats
+    let profileName = 'claude-code'; // default
+    if (body.profile) {
+      profileName = body.profile;
+    } else if (body.profile_variant_label) {
+      profileName = body.profile_variant_label.profile;
+    } else if (body.executor_profile_id) {
+      // Convert Rust format: CLAUDE_CODE -> claude-code
+      profileName = body.executor_profile_id.executor.toLowerCase().replace(/_/g, '-');
+    }
+    
     const taskAttempt = await deployment.createTaskAttempt(
       body.task_id,
-      body.profile,
+      profileName,
       body.base_branch
     );
+
+    // Start execution process immediately after creating task attempt (matching Rust version)
+    try {
+      const project = await deployment.getProject(task.project_id);
+      if (!project) {
+        throw new Error('Project not found');
+      }
+
+      // Create container and start execution
+      await deployment.startExecutionProcess(
+        taskAttempt.id,
+        ExecutionProcessRunReason.CODING_AGENT,
+        null, // Will be created in startExecutionProcess
+        project.git_repo_path
+      );
+      
+      logger.info(`Started execution process for task attempt ${taskAttempt.id}`);
+    } catch (execError) {
+      logger.error('Failed to start execution process:', execError);
+      // Don't fail the request if execution fails to start
+      // The task attempt was created successfully
+    }
 
     res.status(200).json({
       success: true,
