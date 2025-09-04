@@ -3,162 +3,220 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Purpose
-Rust版からTypeScript/Node.js版へのバックエンド完全移植
+A TypeScript/Node.js port of the original Rust-based Vibe Kanban backend, providing a task management system for orchestrating AI coding agents. The project maintains full API compatibility with the original while leveraging the JavaScript ecosystem.
 
 ## Commands
 
-### Development
+### Initial Setup
 ```bash
 # Install all dependencies (root, frontend, backend)
 npm run install:all
-
-# Start development servers (frontend:3000, backend:3001)
-npm run dev
-
-# Backend development only
-npm run backend:dev
-
-# Frontend development only  
-npm run frontend:dev
 ```
 
-### Build & Check
+### Development
 ```bash
-# Type checking
-npm run backend:check  # Backend TypeScript check
-npm run frontend:check # Frontend TypeScript check
-npm run check         # Both
+# Start both servers (frontend:3000, backend:3001)
+npm run dev
 
-# Build
-npm run backend:build  # Backend build (tsc)
-npm run build         # Full build (backend + frontend)
+# Individual servers
+npm run backend:dev    # Backend only (port 3001)
+npm run frontend:dev   # Frontend only (port 3000)
+```
 
-# Linting & Formatting (backend)
+### Quality Checks (Run after making changes)
+```bash
+# Type checking (both frontend and backend)
+npm run check
+
+# Backend-specific checks
+cd backend && npm run lint && npm run format:check && npm run typecheck
+
+# Frontend-specific checks  
+cd frontend && npm run lint && npm run format:check
+```
+
+### Build & Production
+```bash
+# Full build (backend + frontend)
+npm run build
+
+# NPX package for distribution
+npm run build:npx
+npm run test:npm
+```
+
+### Database Management
+```bash
 cd backend
-npm run lint          # ESLint
-npm run format        # Prettier format
-npm run format:check  # Prettier check
-npm run typecheck     # TypeScript check
-
-# Linting & Formatting (frontend)
-cd frontend
-npm run lint          # ESLint with max 100 warnings
-npm run lint:fix      # Auto-fix ESLint issues
-npm run format        # Prettier format
-npm run format:check  # Prettier check
+npm run db:migrate    # Run migrations
+npm run db:reset      # Reset database (removes vibe-kanban.db)
 ```
 
 ### Cleanup
 ```bash
-# Backend cleanup
 cd backend
 npm run clean         # Remove dist directory
 npm run clean:logs    # Remove log files
 npm run clean:all     # Clean everything
 ```
 
-### Database
-```bash
-cd backend
-npm run db:migrate    # Run migrations
-npm run db:reset      # Reset database
-```
-
 ## Architecture
+
+### Tech Stack
+- **Backend**: Node.js + TypeScript + Express
+- **Database**: SQLite with better-sqlite3
+- **Frontend**: React + TypeScript + Vite + TailwindCSS
+- **Real-time**: WebSocket (ws) for event streaming
+- **Process Management**: Simple-git for worktree management
 
 ### Directory Structure
 ```
-/vibe-kanban
-├── crates/           # Rust版 (参照元)
-│   ├── server/       # APIサーバー
-│   ├── db/          # データベース層
-│   ├── services/    # ビジネスロジック
-│   ├── executors/   # AI実行エンジン
-│   ├── deployment/  # デプロイメント管理
-│   ├── local-deployment/ # ローカル実行
-│   └── utils/       # 共通ユーティリティ
-├── backend/         # TypeScript版 (移植先)
-│   ├── server/      # APIサーバー
-│   ├── db/          # データベース層
-│   ├── services/    # ビジネスロジック
-│   ├── executors/   # AI実行エンジン
-│   ├── deployment/  # デプロイメント管理
-│   ├── local-deployment/ # ローカル実行
-│   └── utils/       # 共通ユーティリティ
-└── frontend/        # React UI (修正禁止)
+vibe-kanban/
+├── backend/              # TypeScript backend (移植先)
+│   ├── index.ts          # Entry point
+│   ├── server/           # Express API server & routes
+│   ├── db/               # Database models & migrations
+│   ├── services/         # Core business logic
+│   ├── executors/        # AI agent execution engines
+│   ├── deployment/       # Task deployment management
+│   ├── local-deployment/ # Local execution handlers
+│   └── utils/            # Shared utilities
+├── frontend/             # React UI (修正禁止)
+├── crates/               # Original Rust implementation (参照用)
+└── shared/               # Shared TypeScript types
 ```
 
-### Key Services
-- **DatabaseService**: SQLite接続管理とCRUD操作
-- **DeploymentService**: タスク実行とプロセス管理
-- **WorktreeManager**: Git worktree管理
-- **EventService**: WebSocketイベント配信
-- **MCPServer**: Model Context Protocol実装
+### Core Services
+- **DatabaseService** (`backend/db/`): SQLite connection management, CRUD operations
+- **DeploymentService** (`backend/deployment/`): Task execution and process lifecycle
+- **WorktreeManager** (`backend/services/`): Git worktree operations for isolated environments
+- **EventService** (`backend/services/`): WebSocket-based real-time event distribution
+- **MCPServer** (`backend/services/`): Model Context Protocol server implementation
 
-### API Endpoints Structure
-- `/api/projects` - プロジェクト管理
-- `/api/tasks` - タスク管理
-- `/api/task-attempts` - タスク実行試行
-- `/api/execution-processes` - 実行プロセス
-- `/api/templates` - タスクテンプレート
-- SSE endpoints for log streaming
+### API Endpoints
+- `GET/POST /api/projects` - Project CRUD
+- `GET/POST /api/tasks` - Task management
+- `GET/POST /api/task-attempts` - Execution attempts tracking
+- `GET /api/execution-processes` - Process monitoring
+- `GET/POST /api/templates` - Task templates
+- `GET /api/events/stream` - SSE for log streaming
+- WebSocket endpoints for real-time updates
 
-## Migration Guidelines
+## Code Style & Conventions
 
-### ファイル対応表
-詳細な1対1対応表: `/RUST_TO_REACT_FILES_TABLE.md`
+### TypeScript Conventions
+- **Strict mode**: Disabled (`"strict": false` in tsconfig)
+- **File naming**: camelCase for files, PascalCase for components/classes
+- **Exports**: Named exports preferred over default exports
+- **Async/Await**: Preferred over raw promises
 
-### 移植ルール
-1. Rust版の機能を完全に再現（言語制約がある場合を除く）
-2. ディレクトリ構造は可能な限りRust版と同一に保つ
-3. モデル名はTypeScript慣習に従う（camelCase）
+### Formatting Rules (Prettier)
+- Semi-colons: Required
+- Single quotes for strings
+- Print width: 100 characters
+- Tab width: 2 spaces
+- Trailing comma: None
 
-### ポート設定
-開発用ポート: `/.dev-ports.json`
-- Frontend: 3000
-- Backend: 3001
+### Linting Rules (ESLint)
+- Unused variables: Error (except those prefixed with `_`)
+- Explicit any: Warning (not error)
+- Console statements: Allowed
+- Module boundary types: Disabled
 
-## Important Constraints
+## Migration Context
 
-### 絶対に守ること
-- **フロントエンド修正禁止**: `/frontend` ディレクトリは一切変更しない
-- **node_modules参照禁止**: 巨大なため参照しない
-- **対比表確認必須**: 修正時は必ずRust版と対比表を確認
-- **簡易版作成禁止**: simple版などの限定機能版を勝手に作らない
-- **指示待ち厳守**: 明示的な指示なしに新機能追加や大幅な変更をしない
+### Rust to TypeScript Port Guidelines
+1. **Exact Feature Parity**: Replicate Rust functionality completely (unless language constraints prevent it)
+2. **Directory Mirroring**: Maintain identical structure to Rust version where possible
+3. **API Compatibility**: 95%+ compatibility with original endpoints
+4. **Reference Table**: Check `/RUST_TO_REACT_FILES_TABLE.md` for file mappings
 
-### Database Schema
-SQLiteデータベース（`backend/data/vibe-kanban.db`）
-- マイグレーションファイルは参照用（`crates/db/migrations/`）
-- 実際のスキーマは手動管理
+### Port Configuration
+- Frontend: 3000 (development)
+- Backend: 3001 (development)
+- Configuration: `/.dev-ports.json`
 
-## Testing
-現在テストは未実装。`npm test`は設定されていないため、実行するとエラーになる。
+## Critical Constraints
+
+### DO NOT Modify
+- **Frontend directory** (`/frontend`): Read-only, no modifications allowed
+- **node_modules**: Never reference or read (too large)
+- **Crates directory**: Reference only for understanding Rust implementation
+
+### ALWAYS Do
+- **Check Rust version**: Compare with `crates/` when implementing features
+- **Maintain API compatibility**: Preserve exact endpoint signatures
+- **Follow existing patterns**: Match code style in neighboring files
+- **Wait for instructions**: Don't add features without explicit request
+
+### NEVER Do
+- Create "simple" or "lite" versions of features
+- Add new endpoints without corresponding Rust implementation
+- Modify database schema without migration
+- Introduce breaking API changes
+
+## Database
+
+### SQLite Schema
+- Database location: `backend/data/vibe-kanban.db`
+- Migration reference: `crates/db/migrations/` (for schema understanding)
+- Schema management: Manual (no auto-migrations in TypeScript version)
+
+### Key Tables
+- `projects`: Project configurations
+- `tasks`: Task definitions and status
+- `task_attempts`: Execution history
+- `execution_processes`: Active process tracking
+- `templates`: Reusable task templates
+
+## Testing Status
+- **Unit tests**: Not implemented
+- **Integration tests**: Not implemented
+- **E2E tests**: Not implemented
+- Running `npm test` will error (no test configuration)
 
 ## Environment Variables
-以下の環境変数が設定可能:
 
-| Variable | Type | Default | Description |
-|----------|------|---------|-------------|
-| `GITHUB_CLIENT_ID` | Build-time | `Ov23li9bxz3kKfPOIsGm` | GitHub OAuth app client ID |
-| `POSTHOG_API_KEY` | Build-time | Empty | PostHog analytics API key |
-| `POSTHOG_API_ENDPOINT` | Build-time | Empty | PostHog analytics endpoint |
-| `PORT` | Runtime | `3001` | Backend server port |
-| `BACKEND_PORT` | Runtime | `3001` | Alternative backend server port |
-| `FRONTEND_PORT` | Runtime | `3000` | Frontend development server port |
-| `HOST` | Runtime | `127.0.0.1` | Backend server host |
-| `DISABLE_WORKTREE_ORPHAN_CLEANUP` | Runtime | Not set | Disable git worktree cleanup |
-
-## NPX Package
-このプロジェクトは`npx vibe-kanban`として配布可能:
+Runtime configuration (see `.env.example`):
 ```bash
-npm run build:npx    # NPXパッケージビルド
-npm run test:npm     # NPXパッケージテスト
+PORT=3001                    # Backend server port
+BACKEND_PORT=3001            # Alternative backend port config
+FRONTEND_PORT=3000           # Frontend dev server port
+HOST=127.0.0.1               # Server host
+GITHUB_CLIENT_ID=...         # GitHub OAuth (build-time)
+POSTHOG_API_KEY=...          # Analytics (optional)
+DISABLE_WORKTREE_ORPHAN_CLEANUP=1  # Debug flag
 ```
 
-## Current Status
-2025年9月1日時点:
-- 基本API機能実装済み（プロジェクト、タスク、テンプレート）
-- SSEログストリーミング実装済み
-- フロントエンド連携動作確認済み
-- 未実装: 実AIエンジン統合、GitHub連携、ファイル監視
+## Current Implementation Status
+
+### ✅ Implemented
+- Core CRUD APIs (projects, tasks, templates)
+- SSE log streaming
+- WebSocket event system
+- Database layer with SQLite
+- Frontend integration
+- Basic error handling
+
+### ⏳ Not Yet Implemented
+- Full AI engine integration (executors)
+- GitHub authentication flow
+- File watching system
+- Complete MCP server functionality
+- Comprehensive error recovery
+
+## Development Workflow
+
+1. Make changes to backend code
+2. Run `cd backend && npm run typecheck` to verify types
+3. Run `cd backend && npm run lint` to check linting
+4. Run `cd backend && npm run format` to format code
+5. Test with `npm run dev` to verify functionality
+6. Frontend automatically hot-reloads; backend requires restart
+
+## Debugging Tips
+- Backend logs: Check console output and `*.log` files
+- Database issues: Inspect `backend/data/vibe-kanban.db` with SQLite viewer
+- API testing: Use tools like curl or Postman against port 3001
+- WebSocket debugging: Browser DevTools Network tab
+- Process issues: Set `DISABLE_WORKTREE_ORPHAN_CLEANUP=1` to debug worktree problems

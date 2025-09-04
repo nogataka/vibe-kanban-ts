@@ -7,6 +7,7 @@ import {
   ConversationPatch,
   IEntryIndexProvider
 } from './types';
+import { MsgStore } from '../../../utils/src/msgStore';
 
 /**
  * Internal buffer for collecting streaming text into individual lines
@@ -260,6 +261,62 @@ export class PlainTextProcessor {
    */
   clearBuffer(): void {
     this.buffer.clear();
+  }
+
+  /**
+   * Static method to process logs from a MsgStore
+   */
+  static async processLogs(
+    msgStore: MsgStore,
+    currentDir: string,
+    entryIndexProvider: IEntryIndexProvider,
+    executorType: string,
+    formatChunk?: (content: string, accumulated: string) => string
+  ): Promise<void> {
+    const processor = new PlainTextProcessor({
+      formatter: (chunk: string) => {
+        if (formatChunk) {
+          return formatChunk(chunk, '');
+        }
+        return chunk;
+      }
+    });
+    
+    // Listen to stdout events and process them
+    msgStore.on('stdout', (content: string) => {
+      const entries = processor.processChunk(
+        content,
+        { type: 'assistant_message' } as NormalizedEntryType,
+        entryIndexProvider
+      );
+      
+      // Push entries to msgStore as patches
+      entries.forEach(entry => {
+        const { ConversationPatch } = require('../conversationPatch');
+        const patch = ConversationPatch.addNormalizedEntry(
+          entryIndexProvider.get_current_entry_index(),
+          entry
+        );
+        msgStore.pushPatch(patch);
+      });
+    });
+    
+    // Handle process completion
+    msgStore.on('eof', () => {
+      const entries = processor.flush(
+        { type: 'assistant_message' } as NormalizedEntryType,
+        entryIndexProvider
+      );
+      
+      entries.forEach(entry => {
+        const { ConversationPatch } = require('../conversationPatch');
+        const patch = ConversationPatch.addNormalizedEntry(
+          entryIndexProvider.get_current_entry_index(),
+          entry
+        );
+        msgStore.pushPatch(patch);
+      });
+    });
   }
 }
 

@@ -19,8 +19,9 @@ export async function assetDir(): Promise<string> {
   let assetPath: string;
   
   if (isDevelopment) {
-    // Development: use dev_assets relative to project root
-    const projectRoot = process.cwd();
+    // Development: use dev_assets relative to project root (matching Rust)
+    // Since we're in backend/ directory, go up two levels to reach project root
+    const projectRoot = path.join(__dirname, '..', '..', '..');
     assetPath = path.join(projectRoot, 'dev_assets');
   } else {
     // Production: use OS-appropriate app data directory
@@ -28,20 +29,20 @@ export async function assetDir(): Promise<string> {
     
     switch (process.platform) {
       case 'darwin': // macOS
-        assetPath = path.join(homeDir, 'Library', 'Application Support', 'vibe-kanban');
+        assetPath = path.join(homeDir, 'Library', 'Application Support', 'ai.bloop.vibe-kanban');
         break;
       case 'linux':
-        // Respect XDG_DATA_HOME or default to ~/.local/share
+        // Respect XDG_DATA_HOME or default to ~/.local/share (matching Rust)
         const xdgDataHome = process.env.XDG_DATA_HOME;
         if (xdgDataHome) {
-          assetPath = path.join(xdgDataHome, 'vibe-kanban');
+          assetPath = path.join(xdgDataHome, 'ai.bloop.vibe-kanban');
         } else {
-          assetPath = path.join(homeDir, '.local', 'share', 'vibe-kanban');
+          assetPath = path.join(homeDir, '.local', 'share', 'ai.bloop.vibe-kanban');
         }
         break;
       case 'win32': // Windows
         const appDataDir = process.env.APPDATA || path.join(homeDir, 'AppData', 'Roaming');
-        assetPath = path.join(appDataDir, 'vibe-kanban');
+        assetPath = path.join(appDataDir, 'ai', 'bloop', 'vibe-kanban');
         break;
       default:
         // Fallback for other platforms

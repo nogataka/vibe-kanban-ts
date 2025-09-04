@@ -33,7 +33,16 @@ export class ProfileService {
       if (profilesExist) {
         const profilesData = await fs.readFile(this.defaultProfilesPath, 'utf8');
         const parsed = JSON.parse(profilesData);
-        this.profilesCache = parsed.profiles || this.getDefaultProfiles();
+        // Add supports_mcp field based on executor type
+        const profiles = parsed.profiles || this.getDefaultProfiles();
+        this.profilesCache = profiles.map((profile: Profile) => ({
+          ...profile,
+          supports_mcp: this.getSupportsMapForProfile(profile.label),
+          variants: profile.variants.map((variant: ProfileVariant) => ({
+            ...variant,
+            supports_mcp: this.getSupportsMapForProfile(profile.label)
+          }))
+        }));
       } else {
         // Create default profiles file
         this.profilesCache = this.getDefaultProfiles();
@@ -53,6 +62,10 @@ export class ProfileService {
       const profilesData = {
         profiles: profiles
       };
+
+      // Ensure directory exists before writing
+      const dir = path.dirname(this.defaultProfilesPath);
+      await fs.mkdir(dir, { recursive: true }).catch(() => {});
 
       await fs.writeFile(
         this.defaultProfilesPath,
@@ -92,6 +105,7 @@ export class ProfileService {
       {
         label: 'claude-code',
         mcp_config_path: null,
+        supports_mcp: true,
         CLAUDE_CODE: {
           command: {
             base: 'npx -y @anthropic-ai/claude-code@latest',
@@ -116,6 +130,7 @@ export class ProfileService {
       {
         label: 'claude-code-router',
         mcp_config_path: null,
+        supports_mcp: false,
         CLAUDE_CODE: {
           command: {
             base: 'npx -y @musistudio/claude-code-router code',
@@ -128,6 +143,7 @@ export class ProfileService {
       {
         label: 'amp',
         mcp_config_path: null,
+        supports_mcp: true,
         AMP: {
           command: {
             base: 'npx -y @sourcegraph/amp@latest',
@@ -139,6 +155,7 @@ export class ProfileService {
       {
         label: 'gemini',
         mcp_config_path: null,
+        supports_mcp: true,
         GEMINI: {
           command: {
             base: 'npx -y @google/gemini-cli@latest',
@@ -161,6 +178,7 @@ export class ProfileService {
       {
         label: 'codex',
         mcp_config_path: null,
+        supports_mcp: true,
         CODEX: {
           command: {
             base: 'npx -y @openai/codex exec',
@@ -172,6 +190,7 @@ export class ProfileService {
       {
         label: 'opencode',
         mcp_config_path: null,
+        supports_mcp: true,
         OPENCODE: {
           command: {
             base: 'npx -y opencode-ai@latest run',
@@ -183,6 +202,7 @@ export class ProfileService {
       {
         label: 'cursor',
         mcp_config_path: null,
+        supports_mcp: true,
         CURSOR: {
           command: {
             base: 'cursor-agent',
@@ -192,6 +212,20 @@ export class ProfileService {
         variants: []
       }
     ];
+  }
+
+  // Helper method to determine MCP support based on executor type
+  private getSupportsMapForProfile(label: string): boolean {
+    // Based on Rust's implementation - executors with default_mcp_config_path support MCP
+    const mcpSupportedExecutors = [
+      'claude-code',
+      'amp',
+      'gemini',
+      'codex',
+      'opencode',
+      'cursor'
+    ];
+    return mcpSupportedExecutors.includes(label);
   }
 
   // Clear cache when profiles are updated externally

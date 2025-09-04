@@ -80,6 +80,8 @@ export class ProcessManager extends EventEmitter {
    * Check if process is still running (matches Rust try_wait)
    */
   tryWait(): { finished: boolean; exitCode?: number; error?: Error } {
+    logger.debug(`[ProcessManager.tryWait] isFinished=${this.isFinished}, exitCode=${this.exitCode}, child pid=${this.child?.pid}`);
+    
     if (this.isFinished) {
       return { finished: true, exitCode: this.exitCode };
     }

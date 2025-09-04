@@ -33,8 +33,8 @@ const RebaseTaskAttemptSchema = z.object({
 
 const CreateGitHubPrSchema = z.object({
   title: z.string(),
-  body: z.string().optional(),
-  base_branch: z.string().optional()
+  body: z.string().nullable().optional(),
+  base_branch: z.string().nullable().optional()
 });
 
 const OpenEditorSchema = z.object({
@@ -663,7 +663,17 @@ router.post('/:id/push', async (req: Request, res: Response) => {
 router.post('/:id/rebase', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const body = RebaseTaskAttemptSchema.parse(req.body || {});
+    
+    // Handle empty body or body with null values (matches Rust's Option handling)
+    let newBaseBranch: string | undefined;
+    
+    if (req.body && typeof req.body === 'object') {
+      // Only use new_base_branch if it's provided and not null
+      if ('new_base_branch' in req.body && req.body.new_base_branch !== null && req.body.new_base_branch !== undefined) {
+        newBaseBranch = req.body.new_base_branch;
+      }
+    }
+    
     const deployment: DeploymentService = req.app.locals.deployment;
     
     const taskAttempt = await deployment.getTaskAttempt(id);
@@ -676,7 +686,7 @@ router.post('/:id/rebase', async (req: Request, res: Response) => {
       });
     }
 
-    await deployment.rebaseTaskAttempt(taskAttempt, body.new_base_branch);
+    await deployment.rebaseTaskAttempt(taskAttempt, newBaseBranch);
 
     res.json({
       success: true,
@@ -712,7 +722,11 @@ router.post('/:id/pr', async (req: Request, res: Response) => {
       });
     }
 
-    const prUrl = await deployment.createGitHubPr(taskAttempt, body);
+    const prUrl = await deployment.createGitHubPr(taskAttempt, {
+      title: body.title,
+      body: body.body,
+      base_branch: body.base_branch
+    });
 
     res.json({
       success: true,

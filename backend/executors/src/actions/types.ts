@@ -101,6 +101,7 @@ export interface CursorProfile {
 export interface ProfileVariant {
   label: string;
   mcp_config_path?: string;
+  supports_mcp?: boolean;
   CLAUDE_CODE?: ClaudeCodeProfile;
   AMP?: AmpProfile;
   GEMINI?: GeminiProfile;
@@ -113,6 +114,7 @@ export interface ProfileVariant {
 export interface Profile {
   label: string;
   mcp_config_path?: string;
+  supports_mcp?: boolean;
   CLAUDE_CODE?: ClaudeCodeProfile;
   AMP?: AmpProfile;
   GEMINI?: GeminiProfile;

@@ -33,9 +33,9 @@ export function setupRoutes(app: Express): void {
       // UserSystemInfo 型に合わせた構造 (matching Rust's structure)
       const userSystemInfo = {
         config: {
-          config_version: 'v5',  // Match Rust version
-          theme: 'SYSTEM',
-          profile: {
+          config_version: appConfig.config_version || 'v5',
+          theme: appConfig.theme || 'SYSTEM',
+          profile: appConfig.profile || {
             profile: 'claude-code',
             variant: null
           },
@@ -43,25 +43,21 @@ export function setupRoutes(app: Express): void {
           onboarding_acknowledged: appConfig.onboarding_acknowledged,
           github_login_acknowledged: appConfig.github_login_acknowledged,
           telemetry_acknowledged: appConfig.telemetry_acknowledged,
-          notifications: {
-            sound_enabled: false,
-            push_enabled: false,
-            sound_file: 'ABSTRACT_SOUND1'
-          },
-          editor: {
+          notifications: appConfig.notifications,
+          editor: appConfig.editor || {
             editor_type: 'VS_CODE',
             custom_command: null
           },
           github: {
-            pat: null,
-            oauth_token: appConfig.github.oauth_token || null,
-            username: appConfig.github.username || null,
-            primary_email: appConfig.github.primary_email || null,
-            default_pr_base: 'main'
+            pat: appConfig.github?.pat || null,
+            oauth_token: appConfig.github?.oauth_token || null,
+            username: appConfig.github?.username || null,
+            primary_email: appConfig.github?.primary_email || null,
+            default_pr_base: appConfig.github?.default_pr_base || 'main'
           },
-          analytics_enabled: false,
-          workspace_dir: process.cwd(),
-          last_app_version: '1.0.0',
+          analytics_enabled: appConfig.analytics_enabled,
+          workspace_dir: appConfig.workspace_dir || process.cwd(),
+          last_app_version: appConfig.last_app_version || '1.0.0',
           show_release_notes: appConfig.show_release_notes
         },
         environment: {

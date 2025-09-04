@@ -2,7 +2,7 @@ import { ProcessManager } from '../../../services/src/services/process/processMa
 import { CommandBuilder } from '../command';
 import { logger } from '../../../utils/src/logger';
 import { MsgStore } from '../../../utils/src/msgStore';
-import { PlainTextLogProcessor, EntryIndexProvider } from '../logs';
+import { PlainTextProcessor, IEntryIndexProvider } from '../logs';
 import { normalizeStderrLogs } from '../logs/stderrProcessor';
 
 /**

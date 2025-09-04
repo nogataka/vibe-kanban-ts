@@ -4,7 +4,7 @@ import * as path from 'path';
 import { CommandBuilder } from '../command';
 import { logger } from '../../../utils/src/logger';
 import { MsgStore } from '../../../utils/src/msgStore';
-import { PlainTextLogProcessor, EntryIndexProvider } from '../logs';
+import { PlainTextProcessor, IEntryIndexProvider, EntryIndexProvider } from '../logs';
 import { normalizeStderrLogs } from '../logs/stderrProcessor';
 
 /**
@@ -82,9 +82,19 @@ export class Gemini {
     const sessionId = path.basename(currentDir);
     msgStore.pushSessionId(sessionId);
     
+    // Setup session recording
+    const sessionFilePath = this.getSessionFilePath(currentDir);
+    const sessionsDir = path.dirname(sessionFilePath);
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    
+    // Record stdout to session file
+    msgStore.on('stdout', (content: string) => {
+      fs.appendFileSync(sessionFilePath, content);
+    });
+    
     // Process stdout logs with plain text normalization and Gemini-specific formatting
-    logger.info(`[Gemini.normalizeLogs] Starting PlainTextLogProcessor.processLogs`);
-    PlainTextLogProcessor.processLogs(
+    logger.info(`[Gemini.normalizeLogs] Starting PlainTextProcessor.processLogs`);
+    PlainTextProcessor.processLogs(
       msgStore,
       currentDir,
       entryIndexProvider,
@@ -121,10 +131,9 @@ export class Gemini {
     // Ensure sessions directory exists
     fs.mkdirSync(sessionsDir, { recursive: true });
     
-    // Record stdout to session file
-    processManager.msgStore.on('stdout', (line: string) => {
-      fs.appendFileSync(sessionFilePath, line + '\n');
-    });
+    // Note: In the TypeScript version, msgStore is managed separately
+    // by the DeploymentService, not attached to processManager
+    // The session recording happens through the normalizeLogs method
     
     logger.info(`[Gemini] Recording session to: ${sessionFilePath}`);
   }

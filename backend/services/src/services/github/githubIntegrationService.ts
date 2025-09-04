@@ -125,14 +125,7 @@ export class GitHubIntegrationService {
         merge_commit_sha: prData.merge_commit_sha
       };
 
-      // Create merge record in database
-      await this.models.getMergeModel().createPRMerge(
-        taskAttemptId,
-        prInfo.number,
-        prInfo.url,
-        options.base,
-        PRStatus.OPEN
-      );
+      // Don't create merge record here - it's handled by the caller
 
       logger.info(`Created PR #${prInfo.number}: ${prInfo.url}`);
       return prInfo;

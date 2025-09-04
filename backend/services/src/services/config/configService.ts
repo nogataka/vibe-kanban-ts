@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs';
-import { join, dirname } from 'path';
+import { dirname } from 'path';
 import { logger } from '../../../../utils/src/logger';
+import { getConfigPath } from '../../../../utils/src/assetDir';
 
 export enum SoundFile {
   ABSTRACT_SOUND1 = 'ABSTRACT_SOUND1',
@@ -48,6 +49,8 @@ export interface GitHubConfig {
   username?: string;
   primary_email?: string;
   oauth_token?: string;
+  pat?: string; // Personal Access Token
+  default_pr_base?: string; // Default PR base branch
 }
 
 export interface AppConfig {
@@ -69,11 +72,10 @@ export interface AppConfig {
 
 export class ConfigService {
   private configPath: string;
-  private config: AppConfig | null = null;
 
   constructor() {
-    // Use data directory similar to Rust version
-    this.configPath = join(process.cwd(), 'data', 'config.json');
+    // Use the same directory as Rust version
+    this.configPath = getConfigPath();
   }
 
   private getDefaultConfig(): AppConfig {
@@ -100,43 +102,51 @@ export class ConfigService {
   }
 
   async loadConfig(): Promise<AppConfig> {
-    if (this.config) {
-      return this.config;
-    }
+    // Always read from file (matching Rust behavior - no caching)
 
     try {
       await this.ensureConfigDirectoryExists();
       
       if (await this.configFileExists()) {
         const configContent = await fs.readFile(this.configPath, 'utf-8');
-        this.config = { ...this.getDefaultConfig(), ...JSON.parse(configContent) };
+        const fileConfig = JSON.parse(configContent);
+        const defaultConfig = this.getDefaultConfig();
+        
+        // Deep merge configuration, with file config taking precedence
+        const config = {
+          ...defaultConfig,
+          ...fileConfig,
+          // Deep merge nested objects
+          github: {
+            ...defaultConfig.github,
+            ...fileConfig.github
+          },
+          notifications: fileConfig.notifications || defaultConfig.notifications,
+          editor: fileConfig.editor || defaultConfig.editor
+        };
         logger.info('Configuration loaded successfully');
+        return config;
       } else {
-        this.config = this.getDefaultConfig();
-        await this.saveConfig();
+        const config = this.getDefaultConfig();
+        await this.saveConfig(config);
         logger.info('Created new default configuration');
+        return config;
       }
     } catch (error) {
       logger.error('Failed to load configuration, using defaults:', error);
-      this.config = this.getDefaultConfig();
+      return this.getDefaultConfig();
     }
-
-    return this.config;
   }
 
-  async saveConfig(config?: AppConfig): Promise<void> {
-    if (config) {
-      this.config = config;
-    }
-
-    if (!this.config) {
+  async saveConfig(config: AppConfig): Promise<void> {
+    if (!config) {
       throw new Error('No configuration to save');
     }
 
     try {
       await this.ensureConfigDirectoryExists();
       
-      const configJson = JSON.stringify(this.config, null, 2);
+      const configJson = JSON.stringify(config, null, 2);
       await fs.writeFile(this.configPath, configJson, 'utf-8');
       
       logger.info('Configuration saved successfully');
@@ -191,18 +201,20 @@ export class ConfigService {
 
   // Method to reset config (for testing or reset functionality)
   async resetConfig(): Promise<void> {
-    this.config = this.getDefaultConfig();
-    await this.saveConfig();
+    const config = this.getDefaultConfig();
+    await this.saveConfig(config);
   }
 
   // Method to check if GitHub is configured
-  isGitHubConfigured(): boolean {
-    return !!(this.config?.github?.oauth_token);
+  async isGitHubConfigured(): Promise<boolean> {
+    const config = await this.loadConfig();
+    return !!(config?.github?.oauth_token);
   }
 
   // Get GitHub token (similar to Rust's token() method)
-  getGitHubToken(): string | null {
-    return this.config?.github?.oauth_token || null;
+  async getGitHubToken(): Promise<string | null> {
+    const config = await this.loadConfig();
+    return config?.github?.oauth_token || null;
   }
 }
 

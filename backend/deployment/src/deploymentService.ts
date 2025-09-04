@@ -11,12 +11,14 @@ import { TaskTemplateModel } from '../../db/src/models/taskTemplate';
 import { ExecutionProcessModel } from '../../db/src/models/executionProcess';
 import { ExecutorSessionModel } from '../../db/src/models/executorSession';
 import { ExecutionProcessLogModel } from '../../db/src/models/executionProcessLog';
-import { Project, CreateProject, UpdateProject, Task, CreateTask, TaskAttempt, CreateTaskAttempt, TaskTemplate, CreateTaskTemplate, ExecutionProcess, TaskStatus, ExecutionProcessRunReason } from '../../db/src/models/types';
+import { Project, CreateProject, UpdateProject, Task, CreateTask, TaskAttempt, CreateTaskAttempt, TaskTemplate, CreateTaskTemplate, ExecutionProcess, TaskStatus, ExecutionProcessRunReason, ExecutionContext } from '../../db/src/models/types';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { EventEmitter } from 'events';
 import { FilesystemService } from '../../services/src/services/filesystem/filesystemService';
 import { GitHubIntegrationService, GitHubUserInfo, PRInfo } from '../../services/src/services/github/githubIntegrationService';
+import { GitService, BranchType } from '../../services/src/services/git/gitService';
+import { configService } from '../../services/src/services/config/configService';
 import { MergeModel } from '../../db/src/models/merge';
 import { ImageModel } from '../../db/src/models/image';
 import { ProcessManager } from '../../services/src/services/process/processManager';
@@ -25,6 +27,7 @@ import { ClaudeCode } from '../../executors/src/executors/claude';
 import { ExecutorActionExecutor, ExecutorActionFactory, type ExecutorAction } from '../../executors/src/executorAction';
 import { NotificationService } from '../../services/src/services/notification';
 import { ConfigService } from '../../services/src/services/config';
+import { ContainerManager } from '../../services/src/services/container/containerManager';
 
 
 const execAsync = promisify(exec);
@@ -37,6 +40,7 @@ export class DeploymentService {
   private githubService?: GitHubIntegrationService;
   private notificationService: NotificationService;
   private configService: ConfigService;
+  private containerManager?: ContainerManager;
   // Process management (matches Rust child_store and msg_stores)
   private processManagers = new Map<string, ProcessManager>();
   private msgStores = new Map<string, MsgStore>();
@@ -100,6 +104,10 @@ export class DeploymentService {
 
       // Initialize config service
       await this.configService.loadConfig();
+      
+      // Initialize ContainerManager
+      const gitService = new GitService();
+      this.containerManager = new ContainerManager(this.db as any, gitService, this.projectRoot);
       
       logger.info('Deployment service initialized');
     } catch (error) {
@@ -907,10 +915,32 @@ export class DeploymentService {
    * Helper methods matching Rust functionality
    */
   private dirNameFromTaskAttempt(attemptId: string, taskTitle: string): string {
-    // Create branch name similar to Rust implementation
-    const shortId = attemptId.substring(0, 8);
-    const safeName = taskTitle.replace(/[^a-zA-Z0-9]/g, '-').substring(0, 50);
-    return `task-${shortId}-${safeName}`;
+    // Match Rust implementation exactly: vk-{short_uuid}-{git_branch_id}
+    const shortUuid = this.shortUuid(attemptId);
+    const gitBranchId = this.gitBranchId(taskTitle);
+    return `vk-${shortUuid}-${gitBranchId}`;
+  }
+
+  private shortUuid(uuid: string): string {
+    // Rust: take first 4 chars of UUID (without hyphens)
+    const cleanUuid = uuid.replace(/-/g, '');
+    return cleanUuid.substring(0, 4);
+  }
+
+  private gitBranchId(input: string): string {
+    // Rust implementation:
+    // 1. lowercase
+    const lower = input.toLowerCase();
+    
+    // 2. replace non-alphanumerics with hyphens
+    const slug = lower.replace(/[^a-z0-9]+/g, '-');
+    
+    // 3. trim extra hyphens
+    const trimmed = slug.replace(/^-+|-+$/g, '');
+    
+    // 4. take up to 10 chars, then trim trailing hyphens again
+    const cut = trimmed.substring(0, 10);
+    return cut.replace(/-+$/g, '');
   }
 
   private getWorktreeBaseDir(): string {
@@ -1072,16 +1102,20 @@ export class DeploymentService {
    * Spawn exit monitor (matches Rust spawn_exit_monitor)
    */
   private spawnExitMonitor(executionId: string): void {
+    logger.debug(`[spawnExitMonitor] Starting monitor for execution ${executionId}`);
     const checkInterval = setInterval(async () => {
       const processManager = this.processManagers.get(executionId);
       if (!processManager) {
+        logger.debug(`[spawnExitMonitor] ProcessManager not found for ${executionId}, stopping monitor`);
         clearInterval(checkInterval);
         return;
       }
 
       const { finished, exitCode, error } = processManager.tryWait();
+      logger.debug(`[spawnExitMonitor] Check for ${executionId}: finished=${finished}, exitCode=${exitCode}, error=${error?.message}`);
       
       if (finished) {
+        logger.info(`[spawnExitMonitor] Process finished for ${executionId}, calling handleProcessCompletion`);
         clearInterval(checkInterval);
         await this.handleProcessCompletion(executionId, exitCode, error);
       }
@@ -1096,11 +1130,13 @@ export class DeploymentService {
     exitCode?: number, 
     error?: Error
   ): Promise<void> {
+    logger.info(`[handleProcessCompletion] Called for ${executionId} with exitCode=${exitCode}, error=${error?.message}`);
+    
     if (!this.models) return;
 
     try {
       // Determine final status
-      const status = error ? 'failed' : (exitCode === 0 ? 'completed' : 'failed');
+      const status = error ? 'failed' : ((exitCode === 0 || exitCode === null || exitCode === undefined) ? 'completed' : 'failed');
       
       // Update execution process record
       await this.models.executionProcess.updateCompletion(
@@ -1119,13 +1155,38 @@ export class DeploymentService {
 
       // Get execution context for next action logic
       const executionProcess = await this.models.executionProcess.findById(executionId);
-      if (executionProcess && status === 'completed' && exitCode === 0) {
+      logger.info(`[handleProcessCompletion] executionProcess found: ${!!executionProcess}`);
+      logger.debug(`handleProcessCompletion: executionProcess=${JSON.stringify(executionProcess)}, status=${status}, exitCode=${exitCode}`);
+      
+      if (executionProcess && status === 'completed' && (exitCode === 0 || exitCode === null || exitCode === undefined)) {
+        logger.info(`[handleProcessCompletion] Attempting to commit changes for ${executionId}`);
+        // Try to commit changes (matches Rust's try_commit_changes)
+        const taskAttempt = await this.models.taskAttempt.findById(executionProcess.task_attempt_id);
+        logger.debug(`handleProcessCompletion: taskAttempt=${JSON.stringify(taskAttempt)}, containerManager=${!!this.containerManager}`);
+        
+        if (taskAttempt && this.containerManager) {
+          const task = await this.models.task.findById(taskAttempt.task_id);
+          logger.debug(`handleProcessCompletion: task=${JSON.stringify(task)}`);
+          
+          if (task) {
+            const ctx: ExecutionContext = {
+              execution_process: executionProcess,
+              task_attempt: taskAttempt,
+              task: task
+            };
+            
+            const changesCommitted = await this.containerManager.tryCommitChanges(ctx);
+            if (changesCommitted) {
+              logger.info(`Committed changes for task attempt ${taskAttempt.id}`);
+            }
+          }
+        }
+        
         await this.tryStartNextAction(executionProcess);
       }
 
       // Cleanup resources (matches Rust cleanup)
       await this.cleanupExecution(executionId);
-      
     } catch (cleanupError) {
       logger.error(`Failed to handle completion for process ${executionId}:`, cleanupError);
     }
@@ -1586,23 +1647,32 @@ export class DeploymentService {
         throw new Error('No branch found for task attempt');
       }
 
-      // Create commit message
-      const commitMessage = `${task.title} (vibe-kanban ${taskAttempt.id.split('-')[0]})`;
+      // Create commit message matching Rust format
+      const taskUuidStr = task.id;
+      const firstUuidSection = taskUuidStr.split('-')[0];
+      let commitMessage = `${task.title} (vibe-kanban ${firstUuidSection})`;
+      
+      // Add description if it exists
+      if (task.description && task.description.trim()) {
+        commitMessage += `\n\n${task.description}`;
+      }
 
-      // Switch to base branch and merge
-      await execAsync(`git checkout ${baseBranch}`, { cwd: workingDirectory });
-      await execAsync(`git merge --no-ff ${taskBranch} -m "${commitMessage}"`, { cwd: workingDirectory });
+      // Use GitService to merge changes (matching Rust implementation)
+      const gitService = new GitService();
+      const mergeCommitId = await gitService.mergeChanges(
+        project.git_repo_path,
+        workingDirectory,
+        taskBranch,
+        baseBranch,
+        commitMessage
+      );
 
       // Record merge in database
-      await this.models.merge.create({
-        id: uuidv4(),
-        task_attempt_id: taskAttempt.id,
-        merge_type: 'direct',
-        target_branch: baseBranch,
-        merge_commit_id: await this.getCurrentCommitId(workingDirectory),
-        created_at: new Date(),
-        updated_at: new Date()
-      });
+      await this.models.merge.createDirectMerge(
+        taskAttempt.id,
+        mergeCommitId,
+        baseBranch
+      );
 
       // Update task status to completed
       await this.models.task.updateStatus(task.id, TaskStatus.DONE);
@@ -1617,17 +1687,81 @@ export class DeploymentService {
   /**
    * Push task attempt branch to GitHub
    */
-  async pushTaskAttemptBranch(taskAttempt: TaskAttempt): Promise<void> {
+  async pushTaskAttemptBranch(taskAttempt: TaskAttempt, githubToken?: string): Promise<void> {
     try {
-      const workingDirectory = taskAttempt.container_ref || process.cwd();
+      // Get the worktree path from container_ref
+      // In Rust, ensure_container_exists is called here
+      const workingDirectory = taskAttempt.container_ref;
+      if (!workingDirectory) {
+        throw new Error('No container_ref found for task attempt');
+      }
       const taskBranch = taskAttempt.branch;
 
       if (!taskBranch) {
         throw new Error('No branch found for task attempt');
       }
 
-      // Push to origin
-      await execAsync(`git push origin ${taskBranch}`, { cwd: workingDirectory });
+      // Check if worktree is clean (matching Rust's push_to_github which calls check_worktree_clean)
+      logger.info(`Checking if worktree is clean: ${workingDirectory}`);
+      const gitService = new GitService();
+      const hasChanges = await gitService.hasTrackedChanges(workingDirectory);
+      if (hasChanges) {
+        throw new Error('Worktree has uncommitted changes to tracked files');
+      }
+
+      // Get remote URL
+      const { stdout: remoteUrl } = await execAsync('git remote get-url origin', { cwd: workingDirectory });
+      let httpsUrl = remoteUrl.trim();
+      
+      // Convert SSH to HTTPS if needed
+      if (httpsUrl.startsWith('git@github.com:')) {
+        httpsUrl = httpsUrl.replace('git@github.com:', 'https://github.com/');
+      }
+      
+      // Remove .git suffix if present
+      if (httpsUrl.endsWith('.git')) {
+        httpsUrl = httpsUrl.slice(0, -4);
+      }
+      
+      if (githubToken) {
+        // Push with token authentication (like Rust version)
+        // Add .git suffix for the remote URL
+        const authUrl = httpsUrl.replace('https://', `https://x-access-token:${githubToken}@`) + '.git';
+        
+        // Remove existing temp-auth remote if it exists
+        await execAsync('git remote remove temp-auth', { cwd: workingDirectory }).catch(() => {
+          // Ignore if it doesn't exist
+        });
+        
+        // Add temporary remote with auth
+        await execAsync(`git remote add temp-auth "${authUrl}"`, { cwd: workingDirectory });
+        
+        try {
+          // Push to temporary remote with auth
+          logger.info(`Pushing branch ${taskBranch} using temp-auth remote`);
+          await execAsync(`git push temp-auth ${taskBranch}:${taskBranch}`, { cwd: workingDirectory });
+          logger.info('Push successful with authentication');
+          
+          // Fetch from remote and set upstream (matching Rust's implementation)
+          await execAsync(`git fetch origin`, { cwd: workingDirectory });
+          await execAsync(`git branch --set-upstream-to=origin/${taskBranch} ${taskBranch}`, { 
+            cwd: workingDirectory 
+          }).catch(() => {
+            // Ignore error if branch already has upstream
+          });
+        } catch (pushError) {
+          logger.error('Push with auth failed:', pushError);
+          throw pushError;
+        } finally {
+          // Clean up temporary remote
+          await execAsync('git remote remove temp-auth', { cwd: workingDirectory }).catch(() => {
+            // Ignore error
+          });
+        }
+      } else {
+        // Fallback to regular push
+        await execAsync(`git push origin ${taskBranch}`, { cwd: workingDirectory });
+      }
 
       logger.info(`Pushed branch ${taskBranch} for task attempt ${taskAttempt.id}`);
     } catch (error) {
@@ -1637,7 +1771,7 @@ export class DeploymentService {
   }
 
   /**
-   * Rebase task attempt branch
+   * Rebase task attempt branch (matches Rust rebase_task_attempt)
    */
   async rebaseTaskAttempt(taskAttempt: TaskAttempt, newBaseBranch?: string): Promise<void> {
     try {
@@ -1645,44 +1779,77 @@ export class DeploymentService {
         throw new Error('Models not initialized');
       }
 
-      const workingDirectory = taskAttempt.container_ref || process.cwd();
-      const targetBaseBranch = newBaseBranch || taskAttempt.base_branch || 'main';
-      const taskBranch = taskAttempt.branch;
-
-      if (!taskBranch) {
-        throw new Error('No branch found for task attempt');
+      // Get task and project context (matches Rust context loading)
+      const task = await this.models.task.findById(taskAttempt.task_id);
+      if (!task) {
+        throw new Error('Task not found');
       }
 
-      // Fetch latest changes
-      await execAsync('git fetch origin', { cwd: workingDirectory });
-
-      // Switch to task branch and rebase
-      await execAsync(`git checkout ${taskBranch}`, { cwd: workingDirectory });
-      await execAsync(`git rebase origin/${targetBaseBranch}`, { cwd: workingDirectory });
-
-      // Update base branch in database if changed
-      if (newBaseBranch && newBaseBranch !== taskAttempt.base_branch) {
-        await this.models.taskAttempt.updateBaseBranch(taskAttempt.id, newBaseBranch);
+      const project = await this.models.project.findById(task.project_id);
+      if (!project) {
+        throw new Error('Project not found');
       }
 
-      logger.info(`Rebased task attempt ${taskAttempt.id} onto ${targetBaseBranch}`);
+      // Ensure container exists (matches Rust ensure_container_exists)
+      let containerRef = taskAttempt.container_ref;
+      if (!containerRef) {
+        // Create container if it doesn't exist (matches Rust ensure_container_exists behavior)
+        logger.info(`Creating container for task attempt ${taskAttempt.id}`);
+        containerRef = await this.createContainer(taskAttempt);
+      }
+      const worktreePath = containerRef;
+
+      // Get GitHub config (matches Rust github_config)
+      const config = await configService.loadConfig();
+      const githubToken = config.github?.oauth_token || config.github?.pat;
+
+      // Use the stored base branch if no new base branch is provided (matches Rust effective_base_branch)
+      // Note: Rust uses or_else(|| Some(ctx.task_attempt.base_branch.clone()))
+      // This means it ALWAYS has a value (either new_base_branch or task_attempt.base_branch)
+      const effectiveBaseBranch = newBaseBranch || taskAttempt.base_branch || 'main';
+      const oldBaseBranch = taskAttempt.base_branch || 'main';
+      
+      // Call GitService.rebaseBranch (matches Rust deployment.git().rebase_branch)
+      const gitService = new GitService();
+      const newBaseCommit = await gitService.rebaseBranch(
+        project.git_repo_path,
+        worktreePath,
+        effectiveBaseBranch,  // as_deref() in Rust converts Option<String> to Option<&str>
+        oldBaseBranch,        // Rust uses &ctx.task_attempt.base_branch
+        githubToken
+      );
+
+      // Update base branch in database if changed (matches Rust update_base_branch)
+      if (effectiveBaseBranch && effectiveBaseBranch !== taskAttempt.base_branch) {
+        await this.models.taskAttempt.updateBaseBranch(taskAttempt.id, effectiveBaseBranch);
+      }
+
+      logger.info(`Rebased task attempt ${taskAttempt.id} onto ${effectiveBaseBranch}, new commit: ${newBaseCommit}`);
     } catch (error) {
       logger.error('Failed to rebase task attempt:', error);
       throw error;
     }
   }
-
   /**
    * Create GitHub Pull Request
    */
   async createGitHubPr(taskAttempt: TaskAttempt, prData: { title: string, body?: string, base_branch?: string }): Promise<string> {
     try {
+      logger.info(`Starting PR creation for task attempt ${taskAttempt.id}`);
+      
       if (!this.models) {
         throw new Error('Models not initialized');
       }
 
-      if (!this.githubService) {
-        throw new Error('GitHub service not initialized');
+      // Note: We create a new GitHubIntegrationService instance below, so we don't need to check this.githubService
+
+      // Get GitHub token from config
+      logger.info('Loading config for GitHub token');
+      const config = await configService.loadConfig();
+      const githubToken = config.github?.oauth_token || config.github?.pat;
+      
+      if (!githubToken) {
+        throw new Error('GitHub token not configured');
       }
 
       const task = await this.models.task.findById(taskAttempt.task_id);
@@ -1700,32 +1867,75 @@ export class DeploymentService {
         throw new Error('No branch found for task attempt');
       }
 
-      const baseBranch = prData.base_branch || taskAttempt.base_branch || 'main';
+      // Determine base branch (matching Rust logic)
+      let baseBranch = prData.base_branch;
+      if (!baseBranch) {
+        // Use stored base branch from task attempt
+        if (taskAttempt.base_branch && taskAttempt.base_branch.trim()) {
+          baseBranch = taskAttempt.base_branch;
+        } else {
+          // Fall back to config default or 'main'
+          baseBranch = config.github?.default_pr_base || 'main';
+        }
+      }
 
-      // First, push the branch
-      await this.pushTaskAttemptBranch(taskAttempt);
+      // Get workspace path from container_ref
+      // In Rust, ensure_container_exists is called here
+      const workspacePath = taskAttempt.container_ref;
+      if (!workspacePath) {
+        throw new Error('No container_ref found for task attempt');
+      }
+      logger.info(`Workspace path: ${workspacePath}`);
 
+      // Normalize base branch name if it's a remote branch (matching Rust logic)
+      const gitService = new GitService();
+      let normalizedBaseBranch = baseBranch;
+      try {
+        const branchType = await gitService.findBranchType(project.git_repo_path, baseBranch);
+        if (branchType === BranchType.REMOTE) {
+          // Remote branches are formatted as {remote}/{branch} locally.
+          // For PR APIs, we must provide just the branch name.
+          const remoteName = gitService.getRemoteNameFromBranchName(baseBranch);
+          const remotePrefix = `${remoteName}/`;
+          normalizedBaseBranch = baseBranch.startsWith(remotePrefix) 
+            ? baseBranch.substring(remotePrefix.length)
+            : baseBranch;
+          logger.info(`Normalized remote branch from '${baseBranch}' to '${normalizedBaseBranch}'`);
+        }
+      } catch (error) {
+        logger.warn(`Could not determine branch type for ${baseBranch}, using as-is: ${error}`);
+        // Use the branch name as-is if we can't determine its type
+      }
+
+      // First, push the branch with authentication
+      logger.info(`Pushing branch ${taskBranch} to GitHub`);
+      await this.pushTaskAttemptBranch(taskAttempt, githubToken);
+      logger.info('Branch pushed successfully');
+
+      // Create GitHubIntegrationService with worktree path
+      logger.info('Creating GitHubIntegrationService with worktree path');
+      const workspaceGitHubService = new GitHubIntegrationService(this.models, workspacePath);
+      await workspaceGitHubService.initialize(githubToken);
+      logger.info('GitHubIntegrationService initialized');
+      
       // Create PR via GitHub API
-      const prInfo = await this.githubService.createPullRequest(
-        project.git_repo_path,
-        prData.title,
-        prData.body || '',
-        taskBranch,
-        baseBranch
+      const prInfo = await workspaceGitHubService.createPullRequest(
+        taskAttempt.id,
+        {
+          title: prData.title,
+          body: prData.body || undefined,  // Convert null to undefined
+          head: taskBranch,
+          base: normalizedBaseBranch  // Use normalized branch name
+        }
       );
 
       // Record PR in database
-      await this.models.merge.create({
-        id: uuidv4(),
-        task_attempt_id: taskAttempt.id,
-        merge_type: 'pull_request',
-        target_branch: baseBranch,
-        pr_number: prInfo.number,
-        pr_url: prInfo.url,
-        pr_status: 'open',
-        created_at: new Date(),
-        updated_at: new Date()
-      });
+      await this.models.merge.createPRMerge(
+        taskAttempt.id,
+        prInfo.number,
+        prInfo.url,
+        normalizedBaseBranch  // Use normalized branch name
+      );
 
       logger.info(`Created PR ${prInfo.url} for task attempt ${taskAttempt.id}`);
       return prInfo.url;
@@ -1844,27 +2054,6 @@ export class DeploymentService {
     }
   }
 
-  /**
-   * Get task attempts (matches Rust TaskAttempt::fetch_all)
-   */
-  async getTaskAttempts(taskId?: string): Promise<TaskAttempt[]> {
-    if (!this.models) {
-      throw new Error('DeploymentService not initialized');
-    }
-    
-    // Rust版と同じロジック: taskIdがあればフィルタ、なければ全件
-    return await this.models.taskAttempt.fetchAll(taskId);
-  }
-
-  /**
-   * Get task attempt by ID (matches Rust TaskAttempt::find_by_id)
-   */
-  async getTaskAttempt(id: string): Promise<TaskAttempt | null> {
-    if (!this.models) {
-      throw new Error('DeploymentService not initialized');
-    }
-    return await this.models.taskAttempt.findById(id);
-  }
 
   /**
    * Get next run reason based on action type (matches Rust logic)

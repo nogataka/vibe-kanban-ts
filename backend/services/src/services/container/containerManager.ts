@@ -8,7 +8,8 @@ import { MsgStore } from '../../../../utils/src/msgStore';
 import { 
   TaskAttempt, 
   ExecutionProcess, 
-  ExecutionProcessStatus, 
+  ExecutionProcessStatus,
+  ExecutionProcessRunReason, 
   ExecutionContext,
   Task,
   TaskStatus 
@@ -560,19 +561,61 @@ export class ContainerManager extends ContainerService {
   }
 
   async tryCommitChanges(ctx: ExecutionContext): Promise<boolean> {
-    // Implementation for committing changes in the worktree
-    // This would involve git operations
+    // This matches Rust's try_commit_changes behavior
+    logger.info(`[tryCommitChanges] Called with run_reason: ${ctx.execution_process.run_reason}`);
+    logger.info(`[tryCommitChanges] CODING_AGENT value: ${ExecutionProcessRunReason.CODING_AGENT}`);
+    logger.info(`[tryCommitChanges] CLEANUP_SCRIPT value: ${ExecutionProcessRunReason.CLEANUP_SCRIPT}`);
+    
+    // Only commit for CodingAgent and CleanupScript run reasons
+    if (ctx.execution_process.run_reason !== ExecutionProcessRunReason.CODING_AGENT && 
+        ctx.execution_process.run_reason !== ExecutionProcessRunReason.CLEANUP_SCRIPT) {
+      logger.info(`[tryCommitChanges] Skipping commit for run_reason: ${ctx.execution_process.run_reason}`);
+      return false;
+    }
+
     try {
-      // ExecutionContext doesn't have working_directory, use task_attempt branch info or fallback
-      const workingDir = process.cwd(); // Fallback to current working directory
+      const containerRef = ctx.task_attempt.container_ref;
+      if (!containerRef) {
+        logger.info('[tryCommitChanges] No container_ref found for task attempt, skipping commit');
+        return false;
+      }
+
+      // Use container_ref directly as the working directory path
+      // (matches Rust's approach where container_ref is the worktree path)
+      const workingDir = containerRef;
       const hasChanges = await this.git.hasUncommittedChanges(workingDir);
       
-      if (hasChanges) {
-        // Implementation would depend on specific commit logic
-        return true;
+      if (!hasChanges) {
+        logger.debug(`No uncommitted changes in ${workingDir}`);
+        return false;
       }
+
+      // Create commit message based on run reason
+      let message: string;
+      if (ctx.execution_process.run_reason === ExecutionProcessRunReason.CODING_AGENT) {
+        // Try to get executor session summary
+        const executorSession = await this.db.getConnection()('executor_sessions')
+          .where('execution_process_id', ctx.execution_process.id)
+          .first();
+        
+        if (executorSession?.summary) {
+          message = executorSession.summary;
+        } else {
+          message = `Commit changes from coding agent for task attempt ${ctx.task_attempt.id}`;
+        }
+      } else {
+        message = `Cleanup script changes for task attempt ${ctx.task_attempt.id}`;
+      }
+
+      logger.debug(`Committing changes in ${workingDir}: '${message}'`);
+
+      // Stage all changes and commit
+      const { execSync } = require('child_process');
+      execSync('git add -A', { cwd: workingDir });
+      execSync(`git commit -m "${message.replace(/"/g, '\"')}"`, { cwd: workingDir });
       
-      return false;
+      logger.info(`Committed changes for task attempt ${ctx.task_attempt.id}: ${message}`);
+      return true;
     } catch (error) {
       logger.error('Failed to commit changes:', error);
       return false;
