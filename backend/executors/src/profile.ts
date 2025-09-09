@@ -1,6 +1,6 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { logger } from '../../utils/logger';
+import { logger } from '../../utils/src/logger';
 
 // Executor types
 export enum ExecutorType {

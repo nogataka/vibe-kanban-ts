@@ -243,7 +243,10 @@ router.post('/:id/execute', async (req: Request, res: Response) => {
       typ: {
         type: 'CodingAgentInitialRequest',
         prompt: models.getTaskModel().toPrompt(task),
-        profile_variant_label: taskAttempt.profile || 'claude-code'
+        profile_variant_label: {
+          profile: taskAttempt.profile || 'claude-code',
+          variant: null
+        }
       }
     };
 
@@ -310,7 +313,10 @@ router.post('/:id/follow-up', async (req: Request, res: Response) => {
       typ: {
         type: 'CodingAgentFollowUpRequest',
         prompt: body.prompt,
-        profile_variant_label: profileVariant,
+        profile_variant_label: {
+          profile: profileVariant,
+          variant: null
+        },
         session_id: sessionId,
         image_ids: body.image_ids || undefined // Pass image IDs only if provided and not null
       }
@@ -522,12 +528,13 @@ router.get('/:id/diff', async (req: Request, res: Response) => {
     // Get diff stream
     const diffStream = await deployment.getDiffStream(taskAttempt);
     
-    // Stream diff data to client
-    diffStream.on('data', (chunk) => {
-      res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+    // Stream diff data to client in JSON Patch format
+    diffStream.on('json_patch', (patch) => {
+      res.write(`event: json_patch\ndata: ${JSON.stringify(patch)}\n\n`);
     });
 
-    diffStream.on('end', () => {
+    diffStream.on('finished', () => {
+      res.write('event: finished\ndata: {}\n\n');
       res.write('event: close\ndata: \n\n');
       res.end();
     });

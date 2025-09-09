@@ -1,10 +1,11 @@
 import { MsgStore, LogMsg } from '../../../utils/src/msgStore';
+import { IEntryIndexProvider } from './types';
 
 /**
  * Thread-safe provider for monotonically increasing entry indexes
  * Matches Rust's EntryIndexProvider implementation
  */
-export class EntryIndexProvider {
+export class EntryIndexProvider implements IEntryIndexProvider {
   private currentIndex: number;
 
   private constructor(startIndex: number = 0) {
@@ -32,6 +33,20 @@ export class EntryIndexProvider {
    */
   reset(): void {
     this.currentIndex = 0;
+  }
+
+  /**
+   * IEntryIndexProvider implementation - get current index
+   */
+  get_current_entry_index(): number {
+    return this.currentIndex;
+  }
+
+  /**
+   * IEntryIndexProvider implementation - increment and return new index
+   */
+  increment_entry_index(): void {
+    this.currentIndex++;
   }
 
   /**

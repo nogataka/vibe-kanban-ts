@@ -43,15 +43,24 @@ async function main() {
     }));
     app.use(cors());
     app.use(morgan('combined', { stream: { write: (message) => logger.info(message.trim()) } }));
-    app.use(express.json());
+    
+    // Configure JSON parser to handle "null" string
+    app.use(express.json({
+      reviver: (key, value) => value,
+      strict: false
+    }));
     app.use(express.urlencoded({ extended: true }));
 
     app.locals.deployment = deployment;
     app.locals.db = db;
     app.locals.wss = wss;
 
-    setupRoutes(app);
-    
+    // Serve static files in production
+    if (!isDevelopment) {
+      const frontendPath = path.join(process.cwd(), '..', 'frontend', 'dist');
+      app.use(express.static(frontendPath));
+    }
+
     // Add a simple health check route
     app.get('/api/health', (req, res) => {
       res.json({ status: 'ok', timestamp: new Date().toISOString() });

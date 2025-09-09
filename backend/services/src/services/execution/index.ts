@@ -2,7 +2,7 @@ export { ExecutionManager, LogMessage } from './executionManager';
 
 // Execution service factory
 import { ExecutionManager } from './executionManager';
-import { ModelFactory } from '../../models';
+import { ModelFactory } from '../../../../db/src/models';
 
 export class ExecutionServiceFactory {
   private static instance: ExecutionManager;

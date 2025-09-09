@@ -15,6 +15,7 @@ import {
   MessageCircleQuestion,
   Menu,
   Plus,
+  Github,
 } from 'lucide-react';
 import { Logo } from '@/components/logo';
 import { SearchBar } from '@/components/search-bar';
@@ -79,6 +80,16 @@ export function Navbar() {
           <div className="flex-1 flex justify-end">
             {projectId && (
               <>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  asChild
+                  aria-label="GitHub Management"
+                >
+                  <Link to={`/github?project_id=${projectId}`}>
+                    <Github className="h-4 w-4" />
+                  </Link>
+                </Button>
                 <Button
                   variant="ghost"
                   size="icon"

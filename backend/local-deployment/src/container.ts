@@ -1,7 +1,7 @@
 import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
-import { logger } from '../../utils/logger';
-import { WorktreeManager } from '../worktree';
+import { logger } from '../../utils/src/logger';
+import { WorktreeManager } from '../../services/src/services/worktree';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 
@@ -181,7 +181,7 @@ export class ContainerManager extends EventEmitter {
     try {
       logger.info(`Executing command in container ${containerId}: ${command.join(' ')}`);
       
-      const process = spawn(command[0], command.slice(1), {
+      const childProcess = spawn(command[0], command.slice(1), {
         cwd: container.config.workingDirectory,
         env: {
           ...process.env,
@@ -192,7 +192,7 @@ export class ContainerManager extends EventEmitter {
       });
 
       // Track the process
-      this.processes.set(containerId, process);
+      this.processes.set(containerId, childProcess);
 
       // Handle process events
       process.on('exit', (code) => {
@@ -205,7 +205,7 @@ export class ContainerManager extends EventEmitter {
         this.emit('container:process:error', containerId, error);
       });
 
-      return process;
+      return childProcess;
     } catch (error) {
       logger.error(`Failed to execute command in container ${containerId}:`, error);
       throw error;

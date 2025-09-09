@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "tsx watch index.ts",
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "NODE_ENV=production tsx index.ts",
+    "start:compiled": "node dist/index.js",
     "lint": "eslint . --ext .ts --ignore-path .gitignore",
     "format": "prettier --write \"**/*.ts\"",
     "format:check": "prettier --check \"**/*.ts\"",
@@ -21,6 +22,7 @@
   },
   "dependencies": {
     "@ltd/j-toml": "^1.38.0",
+    "@octokit/rest": "^22.0.0",
     "@sentry/node": "^8.0.0",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",

@@ -394,10 +394,8 @@ router.post('/from-github', async (req: Request, res: Response) => {
       cleanup_script: body.cleanup_script
     };
     
-    const projectId = uuidv4();
-    
     try {
-      const project = await deployment.createProject(projectId, projectData);
+      const project = await deployment.createProject(projectData);
       
       // Track project creation event (if analytics enabled)
       if (config.analytics_enabled) {
@@ -449,6 +447,64 @@ router.post('/from-github', async (req: Request, res: Response) => {
       data: null,
       error_data: null,
       message: 'Failed to create project from GitHub'
+    });
+  }
+});
+
+// POST /api/projects/:id/open-editor - Open project in editor
+router.post('/:id/open-editor', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const deployment: DeploymentService = req.app.locals.deployment;
+    
+    // Parse body - handle null, undefined, or string "null"
+    let body: any = {};
+    if (req.body) {
+      // If body is the string "null", treat it as empty object
+      if (req.body === 'null' || req.body === null) {
+        body = {};
+      } else if (typeof req.body === 'string') {
+        try {
+          body = JSON.parse(req.body);
+        } catch {
+          body = {};
+        }
+      } else {
+        body = req.body;
+      }
+    }
+    
+    // Get project
+    const project = await deployment.getProject(id);
+    if (!project) {
+      return res.status(404).json({
+        success: false,
+        data: null,
+        error_data: null,
+        message: 'Project not found'
+      });
+    }
+    
+    // Get editor preference from config or request body
+    const config = await deployment.getConfig();
+    const editorType = body?.editor_type || config.editor?.editor_type || 'vscode';
+    
+    // Open project directory in editor
+    await deployment.openProjectInEditor(project, editorType);
+    
+    res.json({
+      success: true,
+      data: null,
+      error_data: null,
+      message: null
+    });
+  } catch (error) {
+    logger.error('Failed to open project in editor:', error);
+    res.status(500).json({
+      success: false,
+      data: null,
+      error_data: null,
+      message: 'Failed to open project in editor'
     });
   }
 });

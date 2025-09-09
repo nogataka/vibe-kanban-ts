@@ -16,7 +16,23 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { EventEmitter } from 'events';
 import { FilesystemService } from '../../services/src/services/filesystem/filesystemService';
-import { GitHubIntegrationService, GitHubUserInfo, PRInfo } from '../../services/src/services/github/githubIntegrationService';
+import { 
+  GitHubIntegrationService, 
+  GitHubUserInfo, 
+  PRInfo,
+  CreateIssueOptions,
+  UpdateIssueOptions,
+  IssueInfo,
+  IssueFilters,
+  CommentInfo,
+  CreateReviewOptions,
+  ReviewInfo,
+  MergeOptions,
+  MergeResult,
+  MergeabilityStatus,
+  PullRequestInfo,
+  PullRequestFilters
+} from '../../services/src/services/github/githubIntegrationService';
 import { GitService, BranchType } from '../../services/src/services/git/gitService';
 import { configService } from '../../services/src/services/config/configService';
 import { MergeModel } from '../../db/src/models/merge';
@@ -87,23 +103,27 @@ export class DeploymentService {
         executionProcessLog: new ExecutionProcessLogModel(knex)
       };
 
+      // Initialize config service first to get GitHub token
+      const config = await this.configService.loadConfig();
+      
       // Initialize GitHub service with a simplified ModelFactory interface
       const modelFactory = {
         getMergeModel: () => this.models!.merge
       } as any; // GitHubIntegrationService only needs getMergeModel
-      this.githubService = new GitHubIntegrationService(modelFactory, this.projectRoot);
-      // Try to initialize with token from environment or config
-      const githubToken = process.env.GITHUB_TOKEN;
+      this.githubService = new GitHubIntegrationService(modelFactory);
+      
+      // Try to initialize with token from config (oauth_token)
+      const githubToken = config.github?.oauth_token;
       if (githubToken) {
         try {
           await this.githubService.initialize(githubToken);
+          logger.info('GitHub integration initialized successfully');
         } catch (error) {
           logger.warn('Failed to initialize GitHub service with token:', error);
         }
+      } else {
+        logger.info('No GitHub token found in config or environment');
       }
-
-      // Initialize config service
-      await this.configService.loadConfig();
       
       // Initialize ContainerManager
       const gitService = new GitService();
@@ -551,6 +571,10 @@ export class DeploymentService {
     return this.models.project;
   }
 
+  async getConfig() {
+    return await this.configService.loadConfig();
+  }
+
   getTaskModel() {
     if (!this.models) {
       throw new Error('DeploymentService not initialized');
@@ -695,7 +719,10 @@ export class DeploymentService {
           typ: {
             type: 'CodingAgentInitialRequest',
             prompt: prompt,
-            profile_variant_label: 'claude-code' // Matching default
+            profile_variant_label: {
+              profile: 'claude-code',
+              variant: null
+            }
           },
           next_action: cleanupAction
         }
@@ -712,7 +739,10 @@ export class DeploymentService {
         typ: {
           type: 'CodingAgentInitialRequest',
           prompt: prompt,
-          profile_variant_label: 'claude-code'
+          profile_variant_label: {
+            profile: 'claude-code',
+            variant: null
+          }
         },
         next_action: cleanupAction
       };
@@ -1449,6 +1479,151 @@ export class DeploymentService {
     });
   }
 
+  // ==================== Issue Management Methods ====================
+
+  async setGitHubRepository(projectId: string): Promise<void> {
+    if (!this.githubService) {
+      throw new Error('GitHub service not initialized');
+    }
+    
+    // Validate projectId
+    if (!projectId || typeof projectId !== 'string') {
+      throw new Error(`Invalid projectId: expected string, got ${typeof projectId} - value: ${JSON.stringify(projectId)}`);
+    }
+    
+    // Get project details
+    const project = await this.models!.project.findById(projectId);
+    if (!project) {
+      throw new Error(`Project not found: ${projectId}`);
+    }
+    
+    // Set repository based on project's git_repo_path
+    await this.githubService.setRepository(project.git_repo_path);
+  }
+
+  async createIssue(data: CreateIssueOptions): Promise<IssueInfo> {
+    if (!this.githubService) {
+      throw new Error('GitHub service not initialized');
+    }
+    return await this.githubService.createIssue(data);
+  }
+
+  async getIssues(filters?: IssueFilters): Promise<IssueInfo[]> {
+    if (!this.githubService) {
+      throw new Error('GitHub service not initialized');
+    }
+    return await this.githubService.getIssues(filters || {});
+  }
+
+  async getIssue(issueNumber: number): Promise<IssueInfo | null> {
+    if (!this.githubService) {
+      return null;
+    }
+    return await this.githubService.getIssue(issueNumber);
+  }
+
+  async updateIssue(issueNumber: number, data: UpdateIssueOptions): Promise<IssueInfo> {
+    if (!this.githubService) {
+      throw new Error('GitHub service not initialized');
+    }
+    return await this.githubService.updateIssue(issueNumber, data);
+  }
+
+  async addIssueComment(issueNumber: number, body: string): Promise<CommentInfo> {
+    if (!this.githubService) {
+      throw new Error('GitHub service not initialized');
+    }
+    return await this.githubService.addIssueComment(issueNumber, body);
+  }
+
+  async getIssueComments(issueNumber: number): Promise<CommentInfo[]> {
+    if (!this.githubService) {
+      throw new Error('GitHub service not initialized');
+    }
+    return await this.githubService.getIssueComments(issueNumber);
+  }
+
+  // ==================== PR Review Management Methods ====================
+
+  async createPRReview(pullNumber: number, data: CreateReviewOptions): Promise<ReviewInfo> {
+    if (!this.githubService) {
+      throw new Error('GitHub service not initialized');
+    }
+    return await this.githubService.createPRReview(pullNumber, data);
+  }
+
+  async getPRReviews(pullNumber: number): Promise<ReviewInfo[]> {
+    if (!this.githubService) {
+      throw new Error('GitHub service not initialized');
+    }
+    return await this.githubService.getPRReviews(pullNumber);
+  }
+
+  async submitPRReview(pullNumber: number, reviewId: number, event: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES'): Promise<ReviewInfo> {
+    if (!this.githubService) {
+      throw new Error('GitHub service not initialized');
+    }
+    return await this.githubService.submitPRReview(pullNumber, reviewId, event);
+  }
+
+  async addReviewComment(pullNumber: number, reviewId: number, body: string): Promise<CommentInfo> {
+    if (!this.githubService) {
+      throw new Error('GitHub service not initialized');
+    }
+    return await this.githubService.addReviewComment(pullNumber, reviewId, body);
+  }
+
+  async getPRComments(pullNumber: number): Promise<CommentInfo[]> {
+    if (!this.githubService) {
+      throw new Error('GitHub service not initialized');
+    }
+    return await this.githubService.getPRComments(pullNumber);
+  }
+
+  async replyToComment(pullNumber: number, commentId: number, body: string): Promise<CommentInfo> {
+    if (!this.githubService) {
+      throw new Error('GitHub service not initialized');
+    }
+    return await this.githubService.replyToComment(pullNumber, commentId, body);
+  }
+
+  // ==================== Merge Management Methods ====================
+
+  async mergePullRequest(pullNumber: number, options?: MergeOptions): Promise<MergeResult> {
+    if (!this.githubService) {
+      throw new Error('GitHub service not initialized');
+    }
+    return await this.githubService.mergePullRequest(pullNumber, options);
+  }
+
+  async checkMergeability(pullNumber: number): Promise<MergeabilityStatus> {
+    if (!this.githubService) {
+      throw new Error('GitHub service not initialized');
+    }
+    return await this.githubService.checkMergeability(pullNumber);
+  }
+
+  async updatePullRequestBranch(pullNumber: number): Promise<void> {
+    if (!this.githubService) {
+      throw new Error('GitHub service not initialized');
+    }
+    return await this.githubService.updatePullRequestBranch(pullNumber);
+  }
+
+  async closePullRequest(pullNumber: number): Promise<void> {
+    if (!this.githubService) {
+      throw new Error('GitHub service not initialized');
+    }
+    return await this.githubService.closePullRequest(pullNumber);
+  }
+
+  async getPullRequests(filters?: PullRequestFilters): Promise<PullRequestInfo[]> {
+    if (!this.githubService) {
+      throw new Error('GitHub service not initialized');
+    }
+    return await this.githubService.getPullRequests(filters);
+  }
+
   /**
    * Create task attempt and start execution (like Rust version)
    */
@@ -1569,22 +1744,113 @@ export class DeploymentService {
    */
   async getDiffStream(taskAttempt: TaskAttempt): Promise<EventEmitter> {
     const emitter = new EventEmitter();
-    const execAsync = promisify(exec);
     
     try {
       const workingDirectory = taskAttempt.container_ref || process.cwd();
       
-      // Get git diff
-      const gitDiff = await execAsync('git diff', { cwd: workingDirectory });
+      logger.info(`Getting diff for directory: ${workingDirectory}`);
       
-      // Emit the diff data
-      setTimeout(() => {
-        emitter.emit('data', {
-          type: 'diff',
-          content: gitDiff.stdout
+      // Check if directory exists
+      const fs = require('fs');
+      if (!fs.existsSync(workingDirectory)) {
+        const errorMsg = `Worktree directory does not exist: ${workingDirectory}`;
+        logger.error(errorMsg);
+        
+        // Emit error with clear message
+        setTimeout(() => {
+          emitter.emit('error', new Error(errorMsg));
+        }, 100);
+        return emitter;
+      }
+      
+      // Check if it's a git repository or worktree
+      const gitDir = path.join(workingDirectory, '.git');
+      const isGitRepo = fs.existsSync(gitDir);
+      
+      if (!isGitRepo) {
+        logger.warn(`Directory is not a standard git repository (no .git): ${workingDirectory}`);
+        // It might be a worktree, try to get diff anyway
+      }
+      
+      // Use simple-git library
+      const simpleGit = require('simple-git');
+      const git = simpleGit(workingDirectory);
+      
+      // Get current branch name
+      const currentBranch = await git.revparse(['--abbrev-ref', 'HEAD']);
+      logger.info(`Current branch: ${currentBranch}`);
+      
+      // Try to find the base branch (usually main or master)
+      let baseBranch = 'main';
+      try {
+        await git.revparse(['--verify', 'main']);
+      } catch (e) {
+        try {
+          await git.revparse(['--verify', 'master']);
+          baseBranch = 'master';
+        } catch (e2) {
+          logger.warn('Neither main nor master branch found, using HEAD~1');
+          baseBranch = 'HEAD~1';
+        }
+      }
+      
+      logger.info(`Using base branch: ${baseBranch}`);
+      
+      // Get diff between current branch and base branch
+      let finalDiff = '';
+      
+      try {
+        // First try to get diff against base branch
+        finalDiff = await git.diff([`${baseBranch}...HEAD`]);
+        logger.info(`Diff against ${baseBranch} length: ${finalDiff ? finalDiff.length : 0}`);
+      } catch (error) {
+        logger.warn(`Failed to get diff against ${baseBranch}:`, error);
+        
+        // Fallback to working tree changes
+        finalDiff = await git.diff();
+        logger.info(`Working tree diff length: ${finalDiff ? finalDiff.length : 0}`);
+        
+        if (!finalDiff) {
+          // Try staged changes
+          finalDiff = await git.diff(['--cached']);
+          logger.info(`Staged diff length: ${finalDiff ? finalDiff.length : 0}`);
+        }
+      }
+      
+      // Parse git diff and emit as JSON patches like Rust version
+      if (finalDiff) {
+        const patches = this.parseGitDiffToPatch(finalDiff);
+        
+        // Emit each file as a separate JSON patch event matching Rust format
+        patches.forEach((patch, index) => {
+          setTimeout(() => {
+            emitter.emit('json_patch', [{
+              op: 'add',
+              path: `/entries/${patch.oldPath}`,  // Use oldPath as the key in entries
+              value: {
+                type: 'DIFF',
+                content: {
+                  change: patch.change,
+                  oldPath: patch.oldPath,
+                  newPath: patch.newPath,
+                  oldContent: patch.oldContent,
+                  newContent: patch.newContent
+                }
+              }
+            }]);
+          }, 100 * (index + 1));
         });
-        emitter.emit('end');
-      }, 100);
+        
+        // Emit finished event
+        setTimeout(() => {
+          emitter.emit('finished');
+        }, 100 * (patches.length + 1));
+      } else {
+        // No diff, just emit finished
+        setTimeout(() => {
+          emitter.emit('finished');
+        }, 100);
+      }
       
     } catch (error) {
       logger.error('Failed to get diff stream:', error);
@@ -1594,6 +1860,73 @@ export class DeploymentService {
     }
     
     return emitter;
+  }
+
+  /**
+   * Parse git diff output to JSON Patch format
+   */
+  private parseGitDiffToPatch(diffText: string): any[] {
+    const patches: any[] = [];
+    
+    if (!diffText || !diffText.trim()) {
+      return patches;
+    }
+
+    // Split the diff by file
+    const fileDiffs = diffText.split(/^diff --git /m).filter(d => d.trim());
+    
+    for (const fileDiff of fileDiffs) {
+      const lines = fileDiff.split('\n');
+      
+      // Extract file paths from the first line (a/path b/path)
+      const pathMatch = lines[0].match(/a\/(.+?)\s+b\/(.+?)$/);
+      if (!pathMatch) continue;
+      
+      const oldPath = pathMatch[1];
+      const newPath = pathMatch[2];
+      
+      // Find the @@ line to get the actual diff content
+      const diffStartIndex = lines.findIndex(line => line.startsWith('@@'));
+      if (diffStartIndex === -1) continue;
+      
+      // Extract the actual diff content (lines starting with +, -, or space)
+      const diffLines = lines.slice(diffStartIndex + 1);
+      
+      // Separate old and new content
+      let oldContent = '';
+      let newContent = '';
+      
+      for (const line of diffLines) {
+        if (line.startsWith('+')) {
+          // Added line (only in new content)
+          newContent += line.substring(1) + '\n';
+        } else if (line.startsWith('-')) {
+          // Removed line (only in old content)
+          oldContent += line.substring(1) + '\n';
+        } else if (line.startsWith(' ')) {
+          // Context line (in both)
+          oldContent += line.substring(1) + '\n';
+          newContent += line.substring(1) + '\n';
+        } else if (line.startsWith('\\')) {
+          // Special marker like "\ No newline at end of file"
+          continue;
+        } else {
+          // Keep context lines that don't have a prefix
+          oldContent += line + '\n';
+          newContent += line + '\n';
+        }
+      }
+      
+      patches.push({
+        change: 'modified',
+        oldPath: oldPath,
+        newPath: newPath,
+        oldContent: oldContent.trimEnd(),
+        newContent: newContent.trimEnd()
+      });
+    }
+    
+    return patches;
   }
 
   /**
@@ -1914,7 +2247,20 @@ export class DeploymentService {
 
       // Create GitHubIntegrationService with worktree path
       logger.info('Creating GitHubIntegrationService with worktree path');
-      const workspaceGitHubService = new GitHubIntegrationService(this.models, workspacePath);
+      // Create a ModelFactory wrapper for GitHubIntegrationService
+      const modelFactory = {
+        getProjectModel: () => this.models.project,
+        getTaskModel: () => this.models.task,
+        getTaskAttemptModel: () => this.models.taskAttempt,
+        getExecutionProcessModel: () => this.models.executionProcess,
+        getExecutorSessionModel: () => this.models.executorSession,
+        getTaskTemplateModel: () => this.models.taskTemplate,
+        getImageModel: () => this.models.image,
+        getMergeModel: () => this.models.merge,
+        getExecutionProcessLogModel: () => this.models.executionProcessLog,
+        getAllModels: () => this.models
+      } as any; // Cast to any since ModelFactory type is not available here
+      const workspaceGitHubService = new GitHubIntegrationService(modelFactory, workspacePath);
       await workspaceGitHubService.initialize(githubToken);
       logger.info('GitHubIntegrationService initialized');
       
@@ -1952,13 +2298,93 @@ export class DeploymentService {
     try {
       const workingDirectory = taskAttempt.container_ref || process.cwd();
       const targetPath = filePath ? `${workingDirectory}/${filePath}` : workingDirectory;
-      const editor = editorType || process.env.EDITOR || 'code';
+      
+      // Map editor types to their command-line tools (matching Rust implementation)
+      const editorCommands: Record<string, string> = {
+        'VS_CODE': 'code',
+        'CURSOR': 'cursor',
+        'WINDSURF': 'windsurf',
+        'INTELLIJ': 'idea',
+        'ZED': 'zed',
+        'XCODE': 'xed',
+        'CUSTOM': process.env.CUSTOM_EDITOR || 'code', // Fallback to VS Code
+        // Also support lowercase variants
+        'vs_code': 'code',
+        'vscode': 'code',
+        'cursor': 'cursor',
+        'windsurf': 'windsurf',
+        'intellij': 'idea',
+        'zed': 'zed',
+        'xcode': 'xed',
+        'custom': process.env.CUSTOM_EDITOR || 'code',
+      };
+      
+      // Get the editor command
+      let editorCommand: string;
+      if (editorType && editorCommands[editorType]) {
+        editorCommand = editorCommands[editorType];
+      } else {
+        // Default to VS Code if not specified or invalid
+        editorCommand = process.env.EDITOR || 'code';
+      }
 
-      await execAsync(`${editor} "${targetPath}"`, { cwd: workingDirectory });
+      await execAsync(`${editorCommand} "${targetPath}"`, { cwd: workingDirectory });
 
-      logger.info(`Opened ${targetPath} in ${editor} for task attempt ${taskAttempt.id}`);
+      logger.info(`Opened ${targetPath} in ${editorCommand} for task attempt ${taskAttempt.id}`);
     } catch (error) {
       logger.error('Failed to open task attempt in editor:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Open project in editor
+   */
+  async openProjectInEditor(project: Project, editorType?: string): Promise<void> {
+    try {
+      const projectPath = project.git_repo_path;
+      
+      // Map editor types to their command-line tools (matching Rust implementation)
+      const editorCommands: Record<string, string> = {
+        'VS_CODE': 'code',
+        'CURSOR': 'cursor',
+        'WINDSURF': 'windsurf',
+        'INTELLIJ': 'idea',
+        'ZED': 'zed',
+        'XCODE': 'xed',
+        'CUSTOM': process.env.CUSTOM_EDITOR || 'code', // Fallback to VS Code
+        // Also support lowercase variants
+        'vs_code': 'code',
+        'vscode': 'code',
+        'cursor': 'cursor',
+        'windsurf': 'windsurf',
+        'intellij': 'idea',
+        'zed': 'zed',
+        'xcode': 'xed',
+        'custom': process.env.CUSTOM_EDITOR || 'code',
+      };
+      
+      // Debug logging
+      logger.info(`Opening project in editor - editorType: ${editorType}, available commands:`, Object.keys(editorCommands));
+      
+      // Get the editor command
+      let editorCommand: string;
+      if (editorType && editorCommands[editorType]) {
+        editorCommand = editorCommands[editorType];
+        logger.info(`Using editor command for type '${editorType}': ${editorCommand}`);
+      } else {
+        // Default to VS Code if not specified or invalid
+        editorCommand = process.env.EDITOR || 'code';
+        logger.info(`No matching editor type, using default: ${editorCommand}`);
+      }
+      
+      const command = `${editorCommand} "${projectPath}"`;
+      logger.info(`Executing command: ${command}`);
+      
+      await execAsync(command, { cwd: projectPath });
+      logger.info(`Opened project ${project.id} at ${projectPath} in ${editorCommand}`);
+    } catch (error) {
+      logger.error('Failed to open project in editor:', error);
       throw error;
     }
   }
@@ -2026,15 +2452,19 @@ export class DeploymentService {
       
       // Stop any existing dev servers for this project
       const runningProcesses = await this.models.executionProcess.findByTaskAttemptId(taskAttempt.id);
-      for (const process of runningProcesses.filter(p => p.status === 'running' && p.run_reason === 'dev_server')) {
+      for (const process of runningProcesses.filter(p => p.status === 'running' && p.run_reason === ExecutionProcessRunReason.DEV_SERVER)) {
         await this.stopExecutionProcess(process.id);
       }
 
       // Start new dev server if project has dev script
       if (project.dev_script) {
-        const devServerAction: ExecutorActionField = {
-          type: 'script',
-          script_content: project.dev_script
+        const devServerAction: ExecutorAction = {
+          typ: {
+            type: 'ScriptRequest',
+            script: project.dev_script,
+            language: 'bash',
+            context: 'script'
+          }
         };
 
         await this.startExecutionProcess(

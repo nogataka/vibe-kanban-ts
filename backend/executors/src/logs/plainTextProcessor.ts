@@ -146,7 +146,7 @@ export class PlainTextProcessor {
   processChunk(
     textChunk: string,
     entryType: NormalizedEntryType,
-    indexProvider: EntryIndexProvider
+    indexProvider: IEntryIndexProvider
   ): NormalizedEntry[] {
     if (!textChunk) return [];
 
@@ -188,7 +188,7 @@ export class PlainTextProcessor {
   /**
    * Flush any remaining buffered content
    */
-  flush(entryType: NormalizedEntryType, indexProvider: EntryIndexProvider): NormalizedEntry[] {
+  flush(entryType: NormalizedEntryType, indexProvider: IEntryIndexProvider): NormalizedEntry[] {
     if (this.buffer.isEmpty()) {
       return [];
     }
@@ -229,7 +229,7 @@ export class PlainTextProcessor {
   private createEntry(
     lines: string[],
     entryType: NormalizedEntryType,
-    indexProvider: EntryIndexProvider
+    indexProvider: IEntryIndexProvider
   ): NormalizedEntry {
     const content = lines.join('');
     const formattedContent = this.options.formatter(content);
@@ -344,7 +344,7 @@ export class StderrProcessor extends PlainTextProcessor {
    */
   normalizeStderrLogs(
     stderrContent: string,
-    indexProvider: EntryIndexProvider
+    indexProvider: IEntryIndexProvider
   ): NormalizedEntry[] {
     const chunks = stderrContent.split(/\n\n+/); // Split on double newlines
     const entries: NormalizedEntry[] = [];
@@ -353,7 +353,7 @@ export class StderrProcessor extends PlainTextProcessor {
       if (chunk.trim()) {
         const processedEntries = this.processChunk(
           chunk + '\n',
-          NormalizedEntryType.ERROR_MESSAGE,
+          { type: 'error_message' } as NormalizedEntryType,
           indexProvider
         );
         entries.push(...processedEntries);
@@ -361,7 +361,7 @@ export class StderrProcessor extends PlainTextProcessor {
     }
 
     // Flush any remaining content
-    const remainingEntries = this.flush(NormalizedEntryType.ERROR_MESSAGE, indexProvider);
+    const remainingEntries = this.flush({ type: 'error_message' } as NormalizedEntryType, indexProvider);
     entries.push(...remainingEntries);
 
     return entries;

@@ -6,6 +6,7 @@ import {
   FileChange,
   TodoItem,
   CommandRunResult,
+  CommandExitStatusType,
   ToolResult,
   ToolResultValueType 
 } from './types';
@@ -453,6 +454,13 @@ export class ClaudeLogProcessor {
         if (info && info.tool_data) {
           const isBashCommand = info.tool_data.name === 'Bash';
           const isReadCommand = info.tool_data.name === 'Read';
+          const isSearchCommand = info.tool_data.name === 'Grep' || 
+                                  info.tool_data.name === 'Glob' || 
+                                  info.tool_data.name === 'WebSearch';
+          const isFileEditCommand = info.tool_data.name === 'Write' || 
+                                    info.tool_data.name === 'Edit' || 
+                                    info.tool_data.name === 'MultiEdit';
+          const isTodoCommand = info.tool_data.name === 'TodoWrite';
           
           if (isBashCommand) {
             // Update action type with command result
@@ -479,6 +487,18 @@ export class ClaudeLogProcessor {
             // The action_type already contains file_read with the path
             // So we don't need to replace the entry
             logger.info(`[ClaudeLogProcessor] Skipping replace for Read tool (entry ${info.entry_index})`);
+          } else if (isSearchCommand) {
+            // For search tools (Grep, Glob, WebSearch), keep the original search action
+            // Don't replace with generic tool result
+            logger.info(`[ClaudeLogProcessor] Skipping replace for search tool ${info.tool_name} (entry ${info.entry_index})`);
+          } else if (isFileEditCommand) {
+            // For file edit tools (Write, Edit, MultiEdit), keep the original file_edit action
+            // Don't replace with generic tool result
+            logger.info(`[ClaudeLogProcessor] Skipping replace for file edit tool ${info.tool_name} (entry ${info.entry_index})`);
+          } else if (isTodoCommand) {
+            // For TodoWrite tool, keep the original todo_management action
+            // Don't replace with generic tool result
+            logger.info(`[ClaudeLogProcessor] Skipping replace for TodoWrite tool (entry ${info.entry_index})`);
           } else {
             // Handle other tool results
             const [valueType, value] = this.normalizeClaudeToolResultValue(item.content);
@@ -746,29 +766,29 @@ export class ClaudeLogProcessor {
         return `\`${makePathRelative(toolData.file_path, worktreePath)}\``;
 
       case 'Edit':
-        return `Editing ${makePathRelative(toolData.file_path, worktreePath)}`;
+        return `\`${makePathRelative(toolData.file_path, worktreePath)}\``;
 
       case 'MultiEdit':
-        return `Making ${toolData.edits.length} edits to ${makePathRelative(toolData.file_path, worktreePath)}`;
+        return `\`${makePathRelative(toolData.file_path, worktreePath)}\``;
 
       case 'Write':
-        return `Writing to ${makePathRelative(toolData.file_path, worktreePath)}`;
+        return `\`${makePathRelative(toolData.file_path, worktreePath)}\``;
 
       case 'Bash':
         // Match Rust's format with backticks
         return `\`${toolData.command}\``;
 
       case 'Grep':
-        return `Searching for "${toolData.pattern}"${toolData.path ? ` in ${toolData.path}` : ''}`;
+        return `\`${toolData.pattern}\``;
 
       case 'Glob':
-        return `Finding files matching "${toolData.pattern}"${toolData.path ? ` in ${toolData.path}` : ''}`;
+        return `\`${toolData.pattern}\``;
 
       case 'WebFetch':
         return `Fetching ${toolData.url}`;
 
       case 'WebSearch':
-        return `Searching web for "${toolData.query}"`;
+        return `\`${toolData.query}\``;
 
       case 'Task':
         return toolData.description || 'Creating task';
@@ -798,7 +818,7 @@ export class ClaudeLogProcessor {
         const parsed = JSON.parse(content);
         if ('output' in parsed && 'exitCode' in parsed) {
           result = {
-            exit_status: { type: 'exit_code', code: parsed.exitCode },
+            exit_status: { type: CommandExitStatusType.EXIT_CODE, code: parsed.exitCode },
             output: parsed.output
           };
         }
@@ -806,8 +826,8 @@ export class ClaudeLogProcessor {
         // Not JSON, treat as plain output
         result = {
           exit_status: isError 
-            ? { type: 'exit_code', code: 1 } 
-            : { type: 'success', success: true },
+            ? { type: CommandExitStatusType.EXIT_CODE, code: 1 } 
+            : { type: CommandExitStatusType.SUCCESS, success: true },
           output: content
         };
       }
@@ -815,7 +835,7 @@ export class ClaudeLogProcessor {
       // Handle structured result
       if ('output' in content && 'exitCode' in content) {
         result = {
-          exit_status: { type: 'exit_code', code: content.exitCode },
+          exit_status: { type: CommandExitStatusType.EXIT_CODE, code: content.exitCode },
           output: content.output
         };
       }

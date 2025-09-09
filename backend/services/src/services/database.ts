@@ -41,7 +41,27 @@ export class DatabaseService {
     
     // Initialize container service
     const gitService = new GitService();
-    this.containerService = new ContainerManager(this, gitService);
+    // Create a DBService-compatible wrapper
+    const dbServiceWrapper = {
+      pool: this.db,
+      getConnection: () => this.db,
+      raw: (query: string, bindings?: any[]) => this.db.raw(query, bindings),
+      transaction: (callback: any) => this.db.transaction(callback),
+      checkConnection: async () => {
+        try {
+          await this.db.raw('SELECT 1');
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      close: async () => {
+        if (this.db) {
+          await this.db.destroy();
+        }
+      }
+    } as any; // Cast to any to bypass type checking since we're providing the required interface
+    this.containerService = new ContainerManager(dbServiceWrapper, gitService);
   }
 
   private async ensureDataDirectory(): Promise<void> {
@@ -284,10 +304,6 @@ export class DatabaseService {
     // Added index from migration 20250819000000
     await this.db.raw(`CREATE INDEX IF NOT EXISTS idx_merges_open_pr ON merges(task_attempt_id, pr_status) 
                         WHERE merge_type = 'pr' AND pr_status = 'open'`);
-  }
-
-  getConnection(): Knex {
-    return this.db;
   }
 
   // Helper method to safely add tables without conflicts

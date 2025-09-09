@@ -33,16 +33,34 @@ export class ExecutionProcessModel {
   }
 
   private mapDbToExecutionProcess(row: any): ExecutionProcess {
+    let executorAction = typeof row.executor_action === 'string' ? 
+      JSON.parse(row.executor_action) : row.executor_action;
+    
+    // Migrate old profile_variant_label format (string) to new format (object)
+    if (executorAction?.typ?.profile_variant_label && typeof executorAction.typ.profile_variant_label === 'string') {
+      executorAction.typ.profile_variant_label = {
+        profile: executorAction.typ.profile_variant_label,
+        variant: null
+      };
+    }
+    
+    // Also check for next_action
+    if (executorAction?.next_action?.typ?.profile_variant_label && typeof executorAction.next_action.typ.profile_variant_label === 'string') {
+      executorAction.next_action.typ.profile_variant_label = {
+        profile: executorAction.next_action.typ.profile_variant_label,
+        variant: null
+      };
+    }
+    
     return {
       id: this.bufferToUuid(row.id),
       task_attempt_id: this.bufferToUuid(row.task_attempt_id),
       run_reason: row.run_reason as ExecutionProcessRunReason,
-      executor_action: typeof row.executor_action === 'string' ? 
-        JSON.parse(row.executor_action) : row.executor_action,
+      executor_action: executorAction,
       status: row.status as ExecutionProcessStatus,
-      exit_code: row.exit_code || undefined,
+      exit_code: row.exit_code,
       started_at: new Date(row.started_at),
-      completed_at: row.completed_at ? new Date(row.completed_at) : undefined,
+      completed_at: row.completed_at ? new Date(row.completed_at) : null,
       created_at: new Date(row.created_at),
       updated_at: new Date(row.updated_at)
     };

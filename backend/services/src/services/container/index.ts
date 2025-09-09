@@ -2,7 +2,7 @@ export { ContainerManager, ContainerService, ContainerConfig, ContainerInfo, Con
 
 // Container service factory
 import { ContainerManager } from './containerManager';
-import { DBService } from '../../../db/src/dbService';
+import { DBService } from '../../../../db/src/dbService';
 import { GitService } from '../git/gitService';
 
 export class ContainerServiceFactory {

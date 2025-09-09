@@ -17,8 +17,8 @@ const execAsync = promisify(spawn);
  * Executor action types (matches Rust ExecutorActionType)
  */
 export type ExecutorActionType = 
-  | { type: 'CodingAgentInitialRequest'; prompt: string; profile_variant_label: string }
-  | { type: 'CodingAgentFollowUpRequest'; prompt: string; profile_variant_label: string; session_id: string }
+  | { type: 'CodingAgentInitialRequest'; prompt: string; profile_variant_label: { profile: string; variant: string | null } }
+  | { type: 'CodingAgentFollowUpRequest'; prompt: string; profile_variant_label: { profile: string; variant: string | null }; session_id: string }
   | { type: 'ScriptRequest'; script: string; language: string; context: string };
 
 /**
@@ -68,15 +68,15 @@ export class ExecutorActionExecutor implements Executable {
   /**
    * Spawn coding agent execution
    */
-  private async spawnCodingAgent(currentDir: string, prompt: string, profileLabel: string): Promise<ProcessManager> {
+  private async spawnCodingAgent(currentDir: string, prompt: string, profileLabel: { profile: string; variant: string | null }): Promise<ProcessManager> {
     // Get executor based on profile
-    this.executor = await this.getExecutorForProfile(profileLabel);
+    this.executor = await this.getExecutorForProfile(profileLabel.profile);
     
     if ('spawn' in this.executor) {
       return await this.executor.spawn(currentDir, prompt);
     }
     
-    throw new Error(`Executor for profile ${profileLabel} does not support spawn`);
+    throw new Error(`Executor for profile ${profileLabel.profile} does not support spawn`);
   }
 
   /**
@@ -86,16 +86,16 @@ export class ExecutorActionExecutor implements Executable {
     currentDir: string, 
     prompt: string, 
     sessionId: string,
-    profileLabel: string
+    profileLabel: { profile: string; variant: string | null }
   ): Promise<ProcessManager> {
     // Get executor based on profile
-    this.executor = await this.getExecutorForProfile(profileLabel);
+    this.executor = await this.getExecutorForProfile(profileLabel.profile);
     
     if ('spawnFollowUp' in this.executor) {
       return await this.executor.spawnFollowUp(currentDir, prompt, sessionId);
     }
     
-    throw new Error(`Executor for profile ${profileLabel} does not support follow-up`);
+    throw new Error(`Executor for profile ${profileLabel.profile} does not support follow-up`);
   }
 
   /**
@@ -176,7 +176,10 @@ export class ExecutorActionFactory {
       typ: {
         type: 'CodingAgentInitialRequest',
         prompt,
-        profile_variant_label: profileLabel
+        profile_variant_label: {
+          profile: profileLabel,
+          variant: null
+        }
       },
       next_action: nextAction
     };
@@ -215,7 +218,10 @@ export class ExecutorActionFactory {
       typ: {
         type: 'CodingAgentFollowUpRequest',
         prompt,
-        profile_variant_label: profileLabel,
+        profile_variant_label: {
+          profile: profileLabel,
+          variant: null
+        },
         session_id: sessionId
       },
       next_action: nextAction

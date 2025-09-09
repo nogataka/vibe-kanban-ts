@@ -46,7 +46,7 @@ export function Logo({ className = '' }: { className?: string }) {
     fontWeight="700"
     letterSpacing="2"
   >
-    VIBE-KANBAN-TS
+    CODING-AGENT
   </text>
 </svg>
   );

@@ -14,6 +14,9 @@ export class ProjectModel {
   constructor(private db: Knex) {}
 
   private uuidToBuffer(uuid: string): Buffer {
+    if (!uuid || typeof uuid !== 'string') {
+      throw new Error(`Invalid UUID: expected string, got ${typeof uuid}`);
+    }
     return Buffer.from(uuid.replace(/-/g, ''), 'hex');
   }
 
@@ -51,11 +54,21 @@ export class ProjectModel {
   }
 
   async findById(id: string): Promise<Project | null> {
-    const row = await this.db('projects')
-      .where('id', this.uuidToBuffer(id))
-      .first();
+    if (!id || typeof id !== 'string') {
+      console.error(`Invalid project ID provided: ${id} (type: ${typeof id})`);
+      return null;
+    }
     
-    return row ? this.mapDbToProject(row) : null;
+    try {
+      const row = await this.db('projects')
+        .where('id', this.uuidToBuffer(id))
+        .first();
+      
+      return row ? this.mapDbToProject(row) : null;
+    } catch (error) {
+      console.error(`Error finding project by ID ${id}:`, error);
+      return null;
+    }
   }
 
   async findByGitRepoPath(gitRepoPath: string): Promise<Project | null> {

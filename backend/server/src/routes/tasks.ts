@@ -17,10 +17,10 @@ const CreateTaskSchema = z.object({
 
 const UpdateTaskSchema = z.object({
   title: z.string().min(1).optional(),
-  description: z.string().optional(),
+  description: z.string().nullable().optional(),
   status: z.enum(['todo', 'inprogress', 'done', 'cancelled', 'inreview']).optional(),
   parent_task_attempt: z.string().uuid().nullable().optional(),
-  image_ids: z.array(z.string().uuid()).optional()
+  image_ids: z.array(z.string().uuid()).nullable().optional()
 });
 
 // GET /api/tasks
@@ -298,11 +298,12 @@ router.put('/:id', async (req: Request, res: Response) => {
 
     logger.info(`Existing task found:`, existingTask);
 
-    // Handle image updates if provided
+    // Handle image updates if provided (null means clear all images)
     if (body.image_ids !== undefined) {
       logger.info(`Updating images for task ${req.params.id}: ${body.image_ids}`);
       const models = deployment.getModels();
-      await models.getImageModel().updateTaskImages(req.params.id, body.image_ids);
+      // Pass empty array if image_ids is null to clear all images
+      await models.getImageModel().updateTaskImages(req.params.id, body.image_ids || []);
     }
 
     // Use existing values if not provided in update (matching Rust implementation)

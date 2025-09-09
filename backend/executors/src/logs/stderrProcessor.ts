@@ -17,7 +17,7 @@ export function normalizeStderrLogs(
       // Create normalized error entry
       const entry: NormalizedEntry = {
         timestamp: null,
-        entry_type: NormalizedEntryType.ErrorMessage,
+        entry_type: { type: 'error_message' } as NormalizedEntryType,
         content: msg.content,
         metadata: null
       };
@@ -35,7 +35,7 @@ export function normalizeStderrLogs(
     if (msg.type === 'stderr' && msg.content) {
       const entry: NormalizedEntry = {
         timestamp: null,
-        entry_type: NormalizedEntryType.ErrorMessage,
+        entry_type: { type: 'error_message' } as NormalizedEntryType,
         content: msg.content,
         metadata: null
       };

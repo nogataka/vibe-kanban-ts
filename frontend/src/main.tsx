@@ -8,12 +8,7 @@ import * as Sentry from '@sentry/react';
 // Install VS Code iframe keyboard bridge when running inside an iframe
 import './vscode/bridge';
 
-import {
-  useLocation,
-  useNavigationType,
-  createRoutesFromChildren,
-  matchRoutes,
-} from 'react-router-dom';
+// Removed unused react-router-dom imports
 
 // Sentry.init({
 //   dsn: 'https://1065a1d276a581316999a07d5dffee26@o4509603705192449.ingest.de.sentry.io/4509605576441937',

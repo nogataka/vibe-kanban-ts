@@ -36,8 +36,8 @@ export class Codex {
     
     await processManager.spawn(codexCommand, currentDir, combinedPrompt);
     
-    // Start session ID extraction from stderr
-    this.startSessionIdExtraction(processManager.msgStore);
+    // Note: Session ID extraction would need a msgStore which isn't available in ProcessManager
+    // This would be handled externally when normalizing logs
     
     logger.info(`✅ Codex ProcessManager spawned successfully`);
     return processManager;

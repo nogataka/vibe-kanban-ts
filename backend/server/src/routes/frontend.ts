@@ -19,7 +19,7 @@ router.get('*', async (req: Request, res: Response) => {
     const frontendPort = process.env.FRONTEND_PORT || '3000';
     res.redirect(`http://localhost:${frontendPort}${req.originalUrl}`);
   } else {
-    const frontendPath = path.join(process.cwd(), 'frontend', 'dist');
+    const frontendPath = path.join(process.cwd(), '..', 'frontend', 'dist');
     const indexPath = path.join(frontendPath, 'index.html');
 
     try {

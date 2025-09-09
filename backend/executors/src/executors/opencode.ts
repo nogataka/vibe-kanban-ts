@@ -2,7 +2,7 @@ import { ProcessManager } from '../../../services/src/services/process/processMa
 import { CommandBuilder } from '../command';
 import { logger } from '../../../utils/src/logger';
 import { MsgStore } from '../../../utils/src/msgStore';
-import { PlainTextProcessor, IEntryIndexProvider } from '../logs';
+import { PlainTextProcessor, IEntryIndexProvider, EntryIndexProvider } from '../logs';
 import { normalizeStderrLogs } from '../logs/stderrProcessor';
 
 /**
@@ -33,8 +33,8 @@ export class Opencode {
     
     await processManager.spawn(opencodeCommand, currentDir, combinedPrompt);
     
-    // Start session ID extraction
-    this.startSessionIdExtraction(processManager.msgStore);
+    // Note: Session ID extraction would need a msgStore which isn't available in ProcessManager
+    // This would be handled externally when normalizing logs
     
     logger.info(`✅ Opencode ProcessManager spawned successfully`);
     return processManager;

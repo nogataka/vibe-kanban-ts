@@ -35,6 +35,7 @@ interface MsgStoreInner {
 export class MsgStore extends EventEmitter {
   private inner: MsgStoreInner;
   private readonly maxCapacity: number = 32;
+  private isFinished: boolean = false;
   
   private executionId?: string;
   private dbSaveCallback?: (executionId: string, msg: LogMsg) => Promise<void>;
@@ -349,10 +350,10 @@ export class MsgStore extends EventEmitter {
 
     // Check if stream is already finished (from historical data)
     // This matches Rust's behavior of chaining a Finished event
-    const hasFinished = this.inner.history.some(msg => msg.type === LogMsgType.FINISHED) || this.isFinished;
+    const hasFinished = this.inner.history.some(msg => msg.msg.type === LogMsgType.FINISHED) || this.isFinished;
     
     const logger = require('./logger').logger;
-    logger.info(`[createNormalizedSSEStream] hasFinished: ${hasFinished}, isFinished: ${this.isFinished}, history has finished: ${this.inner.history.some(msg => msg.type === LogMsgType.FINISHED)}`);
+    logger.info(`[createNormalizedSSEStream] hasFinished: ${hasFinished}, isFinished: ${this.isFinished}, history has finished: ${this.inner.history.some(msg => msg.msg.type === LogMsgType.FINISHED)}`);
     
     if (hasFinished) {
       // If already finished, send the finished event and end the stream immediately
