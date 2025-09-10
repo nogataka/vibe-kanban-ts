@@ -110,13 +110,13 @@ export class DeploymentService {
       const modelFactory = {
         getMergeModel: () => this.models!.merge
       } as any; // GitHubIntegrationService only needs getMergeModel
-      this.githubService = new GitHubIntegrationService(modelFactory);
+      this.githubService = new GitHubIntegrationService(modelFactory, this.projectRoot);
       
       // Try to initialize with token from config (oauth_token)
       const githubToken = config.github?.oauth_token;
       if (githubToken) {
         try {
-          await this.githubService.initialize(githubToken);
+          await this.githubService.initialize(githubToken, this.projectRoot);
           logger.info('GitHub integration initialized successfully');
         } catch (error) {
           logger.warn('Failed to initialize GitHub service with token:', error);
@@ -2261,7 +2261,7 @@ export class DeploymentService {
         getAllModels: () => this.models
       } as any; // Cast to any since ModelFactory type is not available here
       const workspaceGitHubService = new GitHubIntegrationService(modelFactory, workspacePath);
-      await workspaceGitHubService.initialize(githubToken);
+      await workspaceGitHubService.initialize(githubToken, workspacePath);
       logger.info('GitHubIntegrationService initialized');
       
       // Create PR via GitHub API

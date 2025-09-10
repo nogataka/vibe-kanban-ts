@@ -15,6 +15,7 @@ import { imageRoutes } from './images';
 import { authRoutes } from './auth';
 import { frontendRoutes } from './frontend';
 import { debugRoutes } from './debug/debug';
+import { rawLogsRoutes } from './rawLogs';
 import * as os from 'os';
 import { configService } from '../../../services/src/services/config/configService';
 import { ProfileService } from '../../../services/src/services/profileService';
@@ -128,6 +129,9 @@ export function setupRoutes(app: Express): void {
   
   // Image management
   app.use('/api/images', imageRoutes);
+  
+  // Raw logs for Claude sessions
+  app.use('/api', rawLogsRoutes);
   
   // Debug routes (development only)
   if (process.env.NODE_ENV !== 'production') {

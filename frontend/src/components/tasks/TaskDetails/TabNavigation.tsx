@@ -1,4 +1,4 @@
-import { GitCompare, MessageSquare, Cog } from 'lucide-react';
+import { GitCompare, MessageSquare, Cog, FileText } from 'lucide-react';
 import { useAttemptExecution } from '@/hooks/useAttemptExecution';
 import type { TabType } from '@/types/tabs';
 import type { TaskAttempt } from 'shared/types';
@@ -20,6 +20,7 @@ function TabNavigation({
 
   const tabs = [
     { id: 'logs' as TabType, label: 'Logs', icon: MessageSquare },
+    { id: 'raw-logs' as TabType, label: 'Raw Logs', icon: FileText },
     { id: 'diffs' as TabType, label: 'Diffs', icon: GitCompare },
     { id: 'processes' as TabType, label: 'Processes', icon: Cog },
   ];
@@ -47,7 +48,7 @@ function TabNavigation({
             {id === 'processes' &&
               attemptData.processes &&
               attemptData.processes.length > 0 && (
-                <span className="ml-2 px-1.5 py-0.5 text-xs bg-primary/10 text-primary rounded-full">
+                <span className="ml-2 px-1.5 py-0.5 text-xs bg-primary/10 text-foreground rounded-full">
                   {attemptData.processes.length}
                 </span>
               )}

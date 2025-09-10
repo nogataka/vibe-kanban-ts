@@ -135,6 +135,11 @@ router.post('/', async (req: Request, res: Response) => {
 router.get('/:id/raw-logs', async (req: Request, res: Response) => {
   const { id } = req.params;
   
+  // Helper function to convert UUID string to Buffer for DB query
+  const uuidToBuffer = (uuid: string): Buffer => {
+    return Buffer.from(uuid.replace(/-/g, ''), 'hex');
+  };
+  
   // Set headers for Server-Sent Events
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -150,54 +155,107 @@ router.get('/:id/raw-logs', async (req: Request, res: Response) => {
     // Get MsgStore for this execution (matches Rust msg_stores lookup)
     const msgStore = deployment.getMsgStore(id);
     
-    if (!msgStore) {
-      res.write(`event: error\ndata: ${JSON.stringify({ error: 'Execution process not found or not running' })}\n\n`);
-      res.end();
-      return;
-    }
+    if (msgStore) {
+      // Live execution - stream from MsgStore
+      logger.info(`[raw-logs] Using live MsgStore for execution ${id}`);
+      
+      // Stream existing messages first, then live stream (matches Rust history_plus_stream)
+      try {
+        let entryIndex = 0;
+        for await (const logMsg of msgStore.historyPlusStream()) {
+          if (logMsg.type === 'stdout' || logMsg.type === 'stderr') {
+            // Format as json_patch event to match Rust format exactly
+            const patch = [{
+              op: 'add',
+              path: `/entries/${entryIndex}`,
+              value: {
+                content: logMsg.content,
+                type: logMsg.type.toUpperCase()
+              }
+            }];
+            res.write(`event: json_patch
+data: ${JSON.stringify(patch)}
 
-    // Send initial connection confirmation
-    res.write(`event: connected\ndata: ${JSON.stringify({ message: 'Connected to raw logs' })}\n\n`);
+`);
+            entryIndex++;
+          } else if (logMsg.type === 'finished') {
+            res.write(`event: finished
+data: 
 
-    // Stream existing messages first, then live stream (matches Rust history_plus_stream)
-    try {
-      for await (const logMsg of msgStore.historyPlusStream()) {
-        if (logMsg.type === 'stdout' || logMsg.type === 'stderr') {
-          // Format as json_patch event to match frontend expectations
-          const patch = [{
-            value: {
-              type: logMsg.type.toUpperCase(),
-              content: logMsg.content
-            }
-          }];
-          res.write(`event: json_patch\ndata: ${JSON.stringify(patch)}\n\n`);
-        } else if (logMsg.type === 'finished') {
-          res.write(`event: finished\ndata: ${JSON.stringify({ message: 'Log stream ended' })}\n\n`);
-          break;
+`);
+            break;
+          }
+        }
+      } catch (streamError) {
+        logger.error(`Error streaming logs for execution ${id}:`, streamError);
+        res.write(`event: error
+data: ${JSON.stringify({ error: 'Stream error' })}
+
+`);
+      }
+    } else {
+      // Fallback: Load logs from database for completed executions
+      logger.info(`[raw-logs] Loading logs from database for execution ${id}`);
+      
+      const db = req.app.locals.db;
+      const executionLogs = await db.getKnex()('execution_process_logs')
+        .where('execution_id', uuidToBuffer(id))
+        .first();
+      
+      if (!executionLogs) {
+        res.write(`event: error
+data: ${JSON.stringify({ error: 'No logs found for execution' })}
+
+`);
+        res.end();
+        return;
+      }
+      
+      // Parse JSONL logs
+      const logsContent = executionLogs.logs?.toString('utf-8') || '';
+      const logLines = logsContent.split('\n').filter(line => line.trim());
+      
+      let entryIndex = 0;
+      for (const line of logLines) {
+        try {
+          const logMsg = JSON.parse(line);
+          
+          if (logMsg.type === 'stdout' || logMsg.type === 'stderr') {
+            // Format as json_patch event to match Rust format
+            const patch = [{
+              op: 'add',
+              path: `/entries/${entryIndex}`,
+              value: {
+                content: logMsg.content,
+                type: logMsg.type.toUpperCase()
+              }
+            }];
+            res.write(`event: json_patch
+data: ${JSON.stringify(patch)}
+
+`);
+            entryIndex++;
+          }
+        } catch (parseError) {
+          logger.warn(`Failed to parse log line: ${line}`);
         }
       }
-    } catch (streamError) {
-      logger.error(`Error streaming logs for execution ${id}:`, streamError);
-      res.write(`event: error\ndata: ${JSON.stringify({ error: 'Stream error' })}\n\n`);
+      
+      // Send finished event
+      res.write(`event: finished
+data: 
+
+`);
     }
     
     res.end();
 
-    // Keep connection alive
-    const keepAlive = setInterval(() => {
-      res.write(`: keepalive ${Date.now()}\n\n`);
-    }, 30000);
-
-    const cleanup = () => {
-      clearInterval(keepAlive);
-    };
-
-    req.on('close', cleanup);
-    req.on('error', cleanup);
-
   } catch (error) {
     logger.error('Failed to stream raw logs:', error);
-    res.write(`event: error\ndata: ${JSON.stringify({ error: 'Failed to stream logs' })}\n\n`);
+    res.write(`event: error
+data: ${JSON.stringify({ error: 'Failed to stream logs' })}
+
+`);
     res.end();
   }
 });
